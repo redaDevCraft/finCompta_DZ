@@ -2,57 +2,68 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BankTransaction;
+use App\Models\Document;
 use App\Models\Expense;
 use App\Models\Invoice;
-use App\Models\BankTransaction;
-use Illuminate\Http\Request;
+use Carbon\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(): Response
     {
-        $company = app('currentCompany');
+        $companyId = app('currentCompany')->id;
+        $startOfMonth = now()->startOfMonth();
 
-        // Recent invoices (last 30 days)
-        $recentInvoices = Invoice::where('company_id', $company->id)
-            ->where('issue_date', '>=', now()->subDays(30))
+        $revenueMtd = Invoice::query()
+            ->where('company_id', $companyId)
+            ->whereIn('status', ['issued', 'paid'])
+            ->whereDate('issue_date', '>=', $startOfMonth)
+            ->sum('total_ttc');
+
+        $expensesMtd = Expense::query()
+            ->where('company_id', $companyId)
+            ->whereIn('status', ['confirmed', 'paid'])
+            ->whereDate('expense_date', '>=', $startOfMonth)
+            ->sum('total_ttc');
+
+        $arTotal = Invoice::query()
+            ->where('company_id', $companyId)
+            ->whereIn('status', ['issued', 'partially_paid'])
+            ->sum('total_ttc');
+
+        $apTotal = Expense::query()
+            ->where('company_id', $companyId)
+            ->where('status', 'confirmed')
+            ->sum('total_ttc');
+
+        $recentInvoices = Invoice::query()
+            ->where('company_id', $companyId)
             ->with('contact')
-            ->latest('issue_date')
+            ->orderByDesc('issue_date')
             ->limit(5)
             ->get();
 
-        // Stats
-        $stats = [
-            'total_invoices' => Invoice::where('company_id', $company->id)->count(),
-            'unpaid_invoices' => Invoice::where('company_id', $company->id)
-                ->issued()
-                ->unpaid()
-                ->sum('total_ttc'),
-            'total_expenses' => Expense::where('company_id', $company->id)
-                ->whereIn('status', ['confirmed', 'posted'])
-                ->sum('total_ttc'),
-            'vat_due' => 0, // Computed from VAT buckets or reports
-            'recent_expenses_count' => Expense::where('company_id', $company->id)
-                ->where('created_at', '>=', now()->subDays(7))
-                ->count(),
-        ];
+        $unmatchedBankCount = BankTransaction::query()
+            ->where('company_id', $companyId)
+            ->where('reconcile_status', 'unmatched')
+            ->count();
 
-        // Quick charts data (last 7 days)
-        $dailyRevenue = Invoice::where('company_id', $company->id)
-            ->issued()
-            ->whereBetween('issue_date', [now()->subDays(7), now()])
-            ->selectRaw('DATE(issue_date) as date, SUM(total_ttc) as amount')
-            ->groupBy('date')
-            ->pluck('amount', 'date')
-            ->toArray();
+        $pendingDocumentsCount = Document::query()
+            ->where('company_id', $companyId)
+            ->whereIn('ocr_status', ['processing', 'pending'])
+            ->count();
 
-        return Inertia::render('Dashboard', compact(
-            'stats',
-            'recentInvoices',
-            'dailyRevenue'
-        ));
+        return Inertia::render('Dashboard/Index', [
+            'revenue_mtd' => (float) $revenueMtd,
+            'expenses_mtd' => (float) $expensesMtd,
+            'ar_total' => (float) $arTotal,
+            'ap_total' => (float) $apTotal,
+            'recent_invoices' => $recentInvoices,
+            'unmatched_bank_count' => $unmatchedBankCount,
+            'pending_documents_count' => $pendingDocumentsCount,
+        ]);
     }
 }
-

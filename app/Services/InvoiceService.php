@@ -3,180 +3,229 @@
 namespace App\Services;
 
 use App\Jobs\GenerateInvoicePdf;
-use App\Models\Account;
+use App\Models\Company;
 use App\Models\Invoice;
-use App\Models\InvoiceLine;
 use App\Models\InvoiceSequence;
-use App\Models\InvoiceVatBucket;
-use App\Models\JournalEntry;
-use App\Models\JournalLine;
-use App\Models\TaxRate;
-use App\Services\JournalService;
-use App\Services\TaxComputationService;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\UniqueConstraintViolationException;
+
 
 class InvoiceService
 {
     public function __construct(
-        protected JournalService $journalService,
-        protected TaxComputationService $taxService
-    ) {}
+        protected TaxComputationService $tax,
+        protected ComplianceEngine $compliance,
+        protected JournalService $journal,
+        protected PdfService $pdf,
+    ) {
+    }
 
     public function saveLines(Invoice $invoice, array $linesData): void
     {
         DB::transaction(function () use ($invoice, $linesData) {
-            // Delete existing lines/buckets
+            $invoice->load('lines', 'vatBuckets');
+
             $invoice->lines()->delete();
+
+            $computedLines = collect($linesData)
+                ->values()
+                ->map(function (array $line, int $index) {
+                    $normalized = [
+                        'designation' => $line['designation'] ?? null,
+                        'quantity' => (float) ($line['quantity'] ?? 0),
+                        'unit' => $line['unit'] ?? null,
+                        'unit_price_ht' => (float) ($line['unit_price_ht'] ?? 0),
+                        'discount_pct' => (float) ($line['discount_pct'] ?? 0),
+                        'tax_rate_id' => $line['tax_rate_id'] ?? null,
+                        'vat_rate_pct' => (float) ($line['vat_rate_pct'] ?? 0),
+                        'account_id' => $line['account_id'] ?? null,
+                        'sort_order' => $line['sort_order'] ?? $index,
+                    ];
+
+                    $computed = $this->tax->computeLine($normalized);
+
+                    return array_merge($normalized, $computed);
+                });
+
+            $invoice->lines()->createMany($computedLines->toArray());
+
+            $totals = $this->tax->computeTotals($computedLines);
+
+            $invoice->fill([
+                'subtotal_ht' => $totals['subtotal_ht'],
+                'total_vat' => $totals['total_vat'],
+                'total_ttc' => $totals['total_ttc'],
+            ]);
+
+            $invoice->save();
+
             $invoice->vatBuckets()->delete();
 
-            $subtotalHt = 0;
-            $totalVat = 0;
+            $vatBuckets = $this->tax->computeVatBuckets($computedLines);
 
-            foreach ($linesData as $lineData) {
-                $line = $invoice->lines()->create([
-                    'account_id' => $lineData['account_id'],
-                    'description' => $lineData['description'],
-                    'quantity' => $lineData['quantity'],
-                    'unit_price' => $lineData['unit_price'],
-                    'total_ht' => $lineData['total_ht'],
+            foreach ($vatBuckets as $bucket) {
+                $invoice->vatBuckets()->create([
+                    'tax_rate_id' => $this->resolveBucketTaxRateId($computedLines, (float) $bucket['rate_pct']),
+                    'rate_pct' => $bucket['rate_pct'],
+                    'base_ht' => $bucket['base_ht'],
+                    'vat_amount' => $bucket['vat_amount'],
                 ]);
-
-                $subtotalHt += $line->total_ht;
-
-                if ($lineData['tax_rate_id']) {
-                    $taxRate = TaxRate::find($lineData['tax_rate_id']);
-                    $vatAmount = $line->total_ht * ($taxRate->rate_percent / 100);
-                    $totalVat += $vatAmount;
-
-                    $invoice->vatBuckets()->create([
-                        'line_id' => $line->id,
-                        'tax_rate_id' => $taxRate->id,
-                        'base_amount' => $line->total_ht,
-                        'vat_amount' => $vatAmount,
-                        'recoverable_pct' => $taxRate->recoverable_pct,
-                        'recoverable_amount' => $vatAmount * ($taxRate->recoverable_pct / 100),
-                    ]);
-                }
             }
-
-            $invoice->update([
-                'subtotal_ht' => $subtotalHt,
-                'total_vat' => $totalVat,
-                'total_ttc' => $subtotalHt + $totalVat,
-            ]);
         });
     }
 
-    public function issue(Invoice $invoice, $company, $user): array
+    public function issue(Invoice $invoice, Company $company, User $user): array
     {
-        try {
-            return DB::transaction(function () use ($invoice, $company, $user) {
-                $sequence = InvoiceSequence::firstOrCreate(
-                    ['company_id' => $company->id, 'document_type' => $invoice->document_type],
-                    ['next_number' => 1]
-                );
+        $invoice->load('lines', 'contact');
 
-                $invoiceNumber = $company->invoice_prefix . str_pad($sequence->next_number, 6, '0', STR_PAD_LEFT);
+        $errors = $this->compliance->validateInvoiceForIssuance($invoice, $company);
 
-                $invoice->update([
-                    'invoice_number' => $invoiceNumber,
-                    'status' => 'issued',
-                    'client_snapshot' => $invoice->contact ? $invoice->contact->replicate()->timestamp(null) : null,
-                    'issued_at' => now(),
-                    'issued_by' => $user->id,
-                ]);
-
-                $sequence->increment('next_number');
-
-                // Generate PDF async
-                GenerateInvoicePdf::dispatch($invoice);
-
-                // Post journal entry
-                $this->postJournalEntry($invoice);
-
-                return [
-                    'success' => true,
-                    'invoice_number' => $invoiceNumber,
-                ];
-            });
-        } catch (\Throwable $e) {
+        if (!empty($errors)) {
             return [
                 'success' => false,
-                'errors' => ['Erreur lors de l\'émission: ' . $e->getMessage()],
+                'errors' => $errors,
             ];
         }
+
+        DB::transaction(function () use ($invoice, $company, $user) {
+            $number = $this->assignSequenceNumber($invoice, $company);
+
+            $invoice->client_snapshot = $invoice->contact?->toArray();
+
+            $invoice->update([
+                'status' => 'issued',
+                'invoice_number' => $number,
+                'issued_at' => now(),
+                'issued_by' => $user->id,
+            ]);
+
+            $invoice->refresh();
+            $invoice->load('lines', 'contact', 'vatBuckets');
+
+            $this->journal->draftSalesEntry($invoice, $company);
+
+            GenerateInvoicePdf::dispatch($invoice->id)->onQueue('pdf');
+        });
+
+        $invoice->refresh();
+        $invoice->load('contact');
+
+        return [
+            'success' => true,
+            'warnings' => $this->compliance->warnInvoiceForIssuance($invoice),
+        ];
     }
 
-    public function createCreditNote(Invoice $original, $company, $user): Invoice
+    public function void(Invoice $invoice, User $user): void
     {
-        $creditNote = $original->replicate([
-            'status',
-            'invoice_number',
-            'issued_at',
-            'issued_by',
-            'journal_entry_id',
-            'pdf_path',
+        if ($invoice->status === 'draft') {
+            abort(422, 'Un brouillon ne peut être annulé, supprimez-le');
+        }
+
+        $invoice->update([
+            'status' => 'voided',
         ]);
-        $creditNote->document_type = 'credit_note';
-        $creditNote->contact_id = $original->contact_id;
-        $creditNote->issue_date = now();
-        $creditNote->due_date = now()->addDays(30);
-        $creditNote->status = 'draft';
-        $creditNote->push();
-
-        $this->saveLines($creditNote, $original->lines->map(fn($line) => [
-            'account_id' => $line->account_id,
-            'description' => 'Avoir: ' . $line->description,
-            'quantity' => $line->quantity,
-            'unit_price' => -$line->unit_price,
-            'total_ht' => -$line->total_ht,
-            'tax_rate_id' => $line->vatBuckets->first()?->tax_rate_id,
-        ])->toArray());
-
-        return $creditNote;
     }
 
-    protected function postJournalEntry(Invoice $invoice): void
+    public function createCreditNote(Invoice $originalInvoice, Company $company, User $user): Invoice
     {
-        $journalEntry = $this->journalService->createEntry(
-            $invoice->company_id,
-            'Invoice ' . $invoice->invoice_number,
-            $invoice->issue_date
-        );
+        $originalInvoice->load('lines');
 
-        // Client receivable (411)
-        $receivableAccount = Account::where('code', '411')->firstOrFail();
-        $journalEntry->lines()->create([
-            'account_id' => $receivableAccount->id,
-            'debit' => $invoice->total_ttc,
-            'credit' => 0,
-            'description' => 'Facture ' . $invoice->invoice_number,
-        ]);
-
-        // Sales accounts + VAT
-        foreach ($invoice->lines as $line) {
-            $salesAccount = $line->account; // 7xx sales
-            $journalEntry->lines()->create([
-                'account_id' => $salesAccount->id,
-                'debit' => 0,
-                'credit' => $line->total_ht,
-                'description' => $line->description,
+        return DB::transaction(function () use ($originalInvoice, $company) {
+            $creditNote = Invoice::create([
+                'company_id' => $company->id,
+                'sequence_id' => $originalInvoice->sequence_id,
+                'invoice_number' => null,
+                'document_type' => 'credit_note',
+                'status' => 'draft',
+                'contact_id' => $originalInvoice->contact_id,
+                'client_snapshot' => null,
+                'issue_date' => now()->toDateString(),
+                'due_date' => null,
+                'payment_mode' => $originalInvoice->payment_mode,
+                'currency' => $originalInvoice->currency,
+                'subtotal_ht' => 0,
+                'total_vat' => 0,
+                'total_ttc' => 0,
+                'notes' => $originalInvoice->notes,
+                'original_invoice_id' => $originalInvoice->id,
+                'journal_entry_id' => null,
+                'pdf_path' => null,
+                'issued_at' => null,
+                'issued_by' => null,
             ]);
-        }
 
-        foreach ($invoice->vatBuckets as $bucket) {
-            $vatAccount = Account::where('code', '44566')->firstOrFail(); // VAT collected
-            $journalEntry->lines()->create([
-                'account_id' => $vatAccount->id,
-                'debit' => 0,
-                'credit' => $bucket->vat_amount,
-                'description' => 'TVA facturée',
+            $linesData = $originalInvoice->lines
+                ->map(function ($line, int $index) {
+                    return [
+                        'designation' => $line->designation,
+                        'quantity' => (float) $line->quantity,
+                        'unit' => $line->unit,
+                        'unit_price_ht' => -1 * abs((float) $line->unit_price_ht),
+                        'discount_pct' => (float) $line->discount_pct,
+                        'tax_rate_id' => $line->tax_rate_id,
+                        'vat_rate_pct' => (float) $line->vat_rate_pct,
+                        'account_id' => $line->account_id,
+                        'sort_order' => $index,
+                    ];
+                })
+                ->toArray();
+
+            $this->saveLines($creditNote, $linesData);
+
+            return $creditNote->fresh(['lines', 'vatBuckets', 'contact']);
+        });
+    }
+     public function assignSequenceNumber(Invoice $invoice): string
+    {
+        try {
+            return $this->assignSequenceNumberOnce($invoice);
+        } catch (UniqueConstraintViolationException $e) {
+            return $this->assignSequenceNumberOnce($invoice);
+        }
+    }
+
+    protected function assignSequenceNumberOnce(Invoice $invoice): string
+    {
+        return DB::transaction(function () use ($invoice) {
+            $year = (int) $invoice->issue_date->format('Y');
+
+            $sequence = InvoiceSequence::query()
+                ->where('company_id', $invoice->company_id)
+                ->where('document_type', $invoice->document_type)
+                ->where('fiscal_year', $year)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $nextNumber = $sequence->last_number + 1;
+            $formattedNumber = sprintf(
+                '%s%05d',
+                $sequence->prefix ? $sequence->prefix . '-' : '',
+                $nextNumber
+            );
+
+            $sequence->update([
+                'last_number' => $nextNumber,
+                'total_issued' => $sequence->total_issued + 1,
             ]);
-        }
 
-        $journalEntry->refresh();
-        $invoice->update(['journal_entry_id' => $journalEntry->id]);
+            $invoice->forceFill([
+                'invoice_number' => $formattedNumber,
+            ])->save();
+
+            return $formattedNumber;
+        });
+    }
+
+
+
+    private function resolveBucketTaxRateId($computedLines, float $ratePct): ?string
+    {
+        $match = $computedLines->first(function ($line) use ($ratePct) {
+            return (float) ($line['vat_rate_pct'] ?? 0) === $ratePct;
+        });
+
+        return $match['tax_rate_id'] ?? null;
     }
 }
-

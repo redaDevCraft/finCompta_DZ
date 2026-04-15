@@ -1,64 +1,105 @@
-import { useState } from 'react';
 import {
+  createColumnHelper,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   useReactTable,
 } from '@tanstack/react-table';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
-export default function DataTable({ columns, data }) {
+const columnHelper = createColumnHelper();
+
+export default function DataTable({ columns, data, pageCount = -1 }) {
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
+    pageCount,
   });
 
   return (
-    <div className="rounded-md border">
-      <table className="w-full">
-        <thead>
-          {table.getHeaderGroups().map(headerGroup => (
+    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
-              {header AscendantGroup.headers.map(header => (
-                <th key={header.id} className="h-12 px-4 text-left text-sm font-medium text-gray-500 [&:has([role=checkbox])]:pr-0">
-                  {flexRender(header.column.columnDef.header, header.getContext())}
+              {headerGroup.headers.map((header) => (
+                <th
+                  key={header.id}
+                  className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500"
+                >
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(header.column.columnDef.header, header.getContext())}
                 </th>
               ))}
             </tr>
           ))}
         </thead>
-        <tbody className="divide-y divide-gray-200 bg-white">
-          {table.getRowModel().rows.map(row => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map(cell => (
-                <td key={cell.id} className="px-4 py-3 text-sm text-gray-900 [&:has([role=checkbox])]:pr-0">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
+        <tbody className="divide-y divide-gray-100 bg-white">
+          {table.getRowModel().rows?.length ? (
+            table.getRowModel().rows.map((row) => (
+              <tr key={row.id} className="hover:bg-gray-50">
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className="px-6 py-4 text-sm text-gray-900">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={table.getAllColumns().length} className="px-6 py-12 text-center">
+                <div className="text-sm text-gray-500">Aucun résultat</div>
+              </td>
             </tr>
-          ))}
+          )}
         </tbody>
       </table>
-      <div className="flex items-center justify-end space-x-2 py-4 px-4">
-        <div className="flex-1 text-sm text-gray-700">Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}</div>
-        <div className="space-x-2">
-          <button
-            className="px-3 py-1 text-sm font-medium rounded-md bg-gray-100 hover:bg-gray-200"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            Previous
-          </button>
-          <button
-            className="px-3 py-1 text-sm font-medium rounded-md bg-gray-100 hover:bg-gray-200"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </button>
+
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between border-t border-gray-200 bg-white px-6 py-3">
+          <div className="flex flex-1 justify-between sm:hidden">
+            <button
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+              className="relative -ml-px inline-flex items-center rounded-l-lg border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:pointer-events-none disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+              className="ml-3 relative inline-flex items-center rounded-r-lg border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:pointer-events-none disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div className="flex items-baseline gap-2 text-sm text-gray-700">
+              <span className="font-medium text-gray-900">
+                Page {table.getState().pagination.pageIndex + 1} sur {pageCount}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white shadow-sm hover:bg-gray-50 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <ChevronDown className="h-4 w-4 rotate-90" />
+              </button>
+              <button
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white shadow-sm hover:bg-gray-50 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <ChevronUp className="h-4 w-4 -rotate-90" />
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

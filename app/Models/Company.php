@@ -82,7 +82,7 @@ class Company extends Model
         return $this->hasMany(TaxRate::class);
     }
 
-    public function documents(): HasMany
+public function documents(): HasMany
     {
         return $this->hasMany(Document::class);
     }
@@ -91,6 +91,7 @@ class Company extends Model
     {
         return $this->hasMany(BankAccount::class);
     }
+
     protected static function booted(): void
     {
         static::created(function (Company $company) {

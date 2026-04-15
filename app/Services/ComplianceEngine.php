@@ -4,92 +4,147 @@ namespace App\Services;
 
 use App\Models\Company;
 use App\Models\Invoice;
+use Carbon\Carbon;
 
 class ComplianceEngine
 {
+    public function validateInvoice(Invoice $invoice): array
+    {
+        $warnings = [];
+        $errors = [];
+
+        $company = $invoice->company;
+        $issueDate = Carbon::parse($invoice->issue_date);
+
+        // Algerian VAT rules
+        if ($company->vat_registered) {
+            if ($invoice->total_vat === 0) {
+                $warnings[] = 'Facture HT 0% TVA - vérifier régime fiscal client';
+            }
+
+            if ($invoice->contact && ! $invoice->contact->nif) {
+                $warnings[] = 'NIF client manquant pour facturation TVA';
+            }
+
+            $sequence = $company->invoiceSequences()->forType($invoice->document_type)->forYear($issueDate->year)->first();
+            if (! $sequence || $sequence->locked) {
+                $errors[] = 'Séquence numérotation verrouillée pour ce type';
+            }
+        }
+
+        // SCF posting rules
+        if ($invoice->isIssued() && ! $invoice->journal_entry_id) {
+            $errors[] = 'Facture émise sans écriture comptable associée';
+        }
+
+        // Late issuance
+        if ($issueDate->diffInDays(now()) > 7) {
+            $warnings[] = 'Facture émise avec retard (>7 jours)';
+        }
+
+        return [
+            'errors' => $errors,
+            'warnings' => $warnings,
+            'compliance_score' => $this->calculateScore($errors, $warnings),
+        ];
+    }
+
+    public function validateVatDeclaration(Company $company, Carbon $from, Carbon $to): array
+    {
+        $period = "{$from->year}-{$from->month}";
+
+        // Check 100% declarations filed
+        $invoicesCount = Invoice::companyId($company->id)->issued()->whereBetween('issue_date', [$from, $to])->count();
+        $declarationExists = $company->vatDeclarations()->where('period', $period)->exists();
+
+        if ($invoicesCount > 0 && ! $declarationExists) {
+            return ['status' => 'required', 'message' => 'Déclaration TVA CA3/CA4 manquante'];
+        }
+
+        return ['status' => 'compliant'];
+    }
+
+    private function calculateScore(array $errors, array $warnings): float
+    {
+        $maxScore = 100;
+        $score = $maxScore;
+        $score -= count($errors) * 25;
+        $score -= count($warnings) * 5;
+        return max(0, $score);
+    }
+      /**
+     * Hard validation errors — any non-empty return blocks issuance entirely.
+     *
+     * @return string[]
+     */
     public function validateInvoiceForIssuance(Invoice $invoice, Company $company): array
     {
         $errors = [];
 
-        if (empty($company->nif)) {
-            $errors[] = 'Vendeur: NIF manquant';
-        }
-
-        if (empty($company->nis)) {
-            $errors[] = 'Vendeur: NIS manquant';
-        }
-
-        if (empty($company->rc)) {
-            $errors[] = 'Vendeur: RC manquant';
-        }
-
-        if (empty($invoice->issue_date)) {
-            $errors[] = 'Date de facture manquante';
-        }
-
         if ($invoice->lines->isEmpty()) {
-            $errors[] = 'La facture ne contient aucune ligne';
+            $errors[] = 'La facture doit contenir au moins une ligne.';
         }
 
-        foreach ($invoice->lines as $i => $line) {
+        foreach ($invoice->lines as $index => $line) {
             if (empty($line->designation)) {
-                $lineNumber = $i + 1;
-                $errors[] = "Ligne {$lineNumber}: désignation vide";
+                $errors[] = sprintf('La ligne %d n\'a pas de désignation.', $index + 1);
+            }
+
+            if ((float) $line->quantity <= 0) {
+                $errors[] = sprintf('La ligne %d a une quantité invalide.', $index + 1);
+            }
+
+            if ((float) $line->unit_price_ht < 0) {
+                $errors[] = sprintf('La ligne %d a un prix unitaire négatif.', $index + 1);
             }
         }
 
-        if ((float) $invoice->total_ttc <= 0 && $invoice->document_type !== 'credit_note') {
-            $errors[] = 'Total TTC doit être positif';
+        if ($invoice->contact_id === null) {
+            $errors[] = 'La facture doit être associée à un client.';
+        }
+
+        if (empty($invoice->issue_date)) {
+            $errors[] = 'La date d\'émission est obligatoire.';
+        }
+
+        if ((float) $invoice->total_ttc < 0) {
+            $errors[] = 'Le montant total TTC ne peut pas être négatif.';
+        }
+
+        // SCF compliance: company must have NIF for VAT invoices
+        if ($company->vat_registered && empty($company->nif)) {
+            $errors[] = 'Le NIF de l\'entreprise est requis pour émettre une facture TVA.';
         }
 
         return $errors;
     }
 
+    /**
+     * Soft warnings — issuance proceeds but warnings are shown to the user.
+     *
+     * @return string[]
+     */
     public function warnInvoiceForIssuance(Invoice $invoice): array
     {
         $warnings = [];
-        $snap = $invoice->client_snapshot ?? [];
-        $contact = $invoice->contact;
 
-        if ($contact && $contact->entity_type === 'enterprise' && empty($snap['nif'])) {
-            $warnings[] = 'Client professionnel: NIF non renseigné';
+        if ($invoice->due_date === null) {
+            $warnings[] = 'Aucune date d\'échéance définie.';
         }
 
-        if (empty($invoice->due_date)) {
-            $warnings[] = "Aucune date d'échéance définie";
+        if ($invoice->due_date && $invoice->due_date->lt($invoice->issue_date)) {
+            $warnings[] = 'La date d\'échéance est antérieure à la date d\'émission.';
         }
 
-        return $warnings;
-    }
+        if (empty($invoice->payment_mode)) {
+            $warnings[] = 'Le mode de paiement n\'est pas renseigné.';
+        }
 
-    public function verifyTaxConsistency(array $data): array
-    {
-        $warnings = [];
-
-        $totalHt = isset($data['total_ht']) ? (float) $data['total_ht'] : null;
-        $totalVat = isset($data['total_vat']) ? (float) $data['total_vat'] : null;
-        $totalTtc = isset($data['total_ttc']) ? (float) $data['total_ttc'] : null;
-
-        if ($totalHt !== null && $totalVat !== null && $totalTtc !== null) {
-            $expectedTtc = round($totalHt + $totalVat, 2);
-
-            if (abs($expectedTtc - $totalTtc) > 0.05) {
-                $warnings[] = 'Incohérence HT+TVA≠TTC — vérifiez les montants extraits';
-            }
-
-            if ($totalHt > 0) {
-                $implied = round($totalVat / $totalHt * 100, 1);
-
-                if (
-                    !in_array($implied, [0.0, 9.0, 19.0], true)
-                    && abs($implied - 9) > 1
-                    && abs($implied - 19) > 1
-                ) {
-                    $warnings[] = "Taux TVA implicite ({$implied}%) inhabituel — vérifiez";
-                }
-            }
+        if ($invoice->lines->every(fn($l) => (float) $l->vat_rate_pct === 0.0)) {
+            $warnings[] = 'Aucune ligne n\'est soumise à la TVA. Vérifiez l\'exonération.';
         }
 
         return $warnings;
     }
 }
+
