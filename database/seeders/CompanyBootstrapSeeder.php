@@ -9,20 +9,19 @@ use App\Models\TaxRate;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
-
 class CompanyBootstrapSeeder extends Seeder
 {
-    public function __construct(protected ?string $companyId = null)
-    {
-    }
+    public function __construct(protected ?string $companyId = null) {}
 
-    public function run(): void
+    public function run(?string $companyId = null): void
     {
-        if (! $this->companyId) {
+        $companyId = $companyId ?? $this->companyId;
+
+        if (! $companyId) {
             return;
         }
 
-        $company = Company::query()->findOrFail($this->companyId);
+        $company = Company::query()->findOrFail($companyId);
         $currentYear = (int) now()->format('Y');
 
         TaxRate::query()
@@ -47,6 +46,7 @@ class CompanyBootstrapSeeder extends Seeder
             });
 
         (new ScfAccountsSeeder($company->id))->run();
+        (new JournalSeeder($company->id))->run();
 
         foreach (range(1, 12) as $month) {
             $existing = FiscalPeriod::query()
@@ -54,7 +54,7 @@ class CompanyBootstrapSeeder extends Seeder
                 ->where('year', $currentYear)
                 ->where('month', $month)
                 ->first();
-        
+
             if ($existing) {
                 $existing->update([
                     'status' => 'open',
@@ -73,7 +73,6 @@ class CompanyBootstrapSeeder extends Seeder
                 ]);
             }
         }
-        
 
         $sequences = [
             ['document_type' => 'invoice', 'prefix' => 'FAC'],

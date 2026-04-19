@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\Company;
 use App\Models\Invoice;
+use App\Models\InvoiceSequence;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class ComplianceEngine
 {
@@ -17,8 +19,8 @@ class ComplianceEngine
         $issueDate = Carbon::parse($invoice->issue_date);
 
         // Algerian VAT rules
-        if ($company->vat_registered) {
-            if ($invoice->total_vat === 0) {
+        if ($company && $company->vat_registered) {
+            if ((float) $invoice->total_vat === 0.0) {
                 $warnings[] = 'Facture HT 0% TVA - vérifier régime fiscal client';
             }
 
@@ -26,20 +28,27 @@ class ComplianceEngine
                 $warnings[] = 'NIF client manquant pour facturation TVA';
             }
 
-            $sequence = $company->invoiceSequences()->forType($invoice->document_type)->forYear($issueDate->year)->first();
-            if (! $sequence || $sequence->locked) {
-                $errors[] = 'Séquence numérotation verrouillée pour ce type';
+            $sequence = InvoiceSequence::query()
+                ->where('company_id', $company->id)
+                ->where('document_type', $invoice->document_type)
+                ->where('fiscal_year', $issueDate->year)
+                ->first();
+
+            if (! $sequence) {
+                $errors[] = 'Séquence de numérotation introuvable pour ce type de document.';
+            } elseif ($sequence->locked) {
+                $errors[] = 'Séquence de numérotation verrouillée pour ce type.';
             }
         }
 
         // SCF posting rules
         if ($invoice->isIssued() && ! $invoice->journal_entry_id) {
-            $errors[] = 'Facture émise sans écriture comptable associée';
+            $errors[] = 'Facture émise sans écriture comptable associée.';
         }
 
         // Late issuance
         if ($issueDate->diffInDays(now()) > 7) {
-            $warnings[] = 'Facture émise avec retard (>7 jours)';
+            $warnings[] = 'Facture émise avec retard (>7 jours).';
         }
 
         return [
@@ -49,19 +58,61 @@ class ComplianceEngine
         ];
     }
 
+    /**
+     * Return the VAT-declaration compliance status for the given period.
+     *
+     * This function is defensive: the `vat_declarations` table is optional in
+     * the MVP, and may not exist on all deployments. When it's absent we fall
+     * back to a "not_implemented" result so callers (dashboard cards, admin
+     * reports) can decide how to render a neutral state instead of crashing.
+     */
     public function validateVatDeclaration(Company $company, Carbon $from, Carbon $to): array
     {
-        $period = "{$from->year}-{$from->month}";
+        $period = sprintf('%04d-%02d', $from->year, $from->month);
 
-        // Check 100% declarations filed
-        $invoicesCount = Invoice::companyId($company->id)->issued()->whereBetween('issue_date', [$from, $to])->count();
-        $declarationExists = $company->vatDeclarations()->where('period', $period)->exists();
+        $invoicesCount = Invoice::query()
+            ->forCompany($company->id)
+            ->issued()
+            ->whereBetween('issue_date', [$from->toDateString(), $to->toDateString()])
+            ->count();
 
-        if ($invoicesCount > 0 && ! $declarationExists) {
-            return ['status' => 'required', 'message' => 'Déclaration TVA CA3/CA4 manquante'];
+        if ($invoicesCount === 0) {
+            return [
+                'status' => 'not_applicable',
+                'period' => $period,
+                'invoices_count' => 0,
+                'message' => 'Aucune facture émise sur la période — déclaration non requise.',
+            ];
         }
 
-        return ['status' => 'compliant'];
+        if (! Schema::hasTable('vat_declarations')) {
+            return [
+                'status' => 'not_implemented',
+                'period' => $period,
+                'invoices_count' => $invoicesCount,
+                'message' => 'Le suivi des déclarations TVA n\'est pas encore activé.',
+            ];
+        }
+
+        $declarationExists = $company->vatDeclarations()
+            ->where('period', $period)
+            ->exists();
+
+        if (! $declarationExists) {
+            return [
+                'status' => 'required',
+                'period' => $period,
+                'invoices_count' => $invoicesCount,
+                'message' => 'Déclaration TVA CA3/CA4 manquante.',
+            ];
+        }
+
+        return [
+            'status' => 'compliant',
+            'period' => $period,
+            'invoices_count' => $invoicesCount,
+            'message' => 'Déclaration déposée.',
+        ];
     }
 
     private function calculateScore(array $errors, array $warnings): float

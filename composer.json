@@ -8,9 +8,12 @@
     "require": {
         "php": "^8.3",
         "barryvdh/laravel-dompdf": "^3.1",
+        "chargily/chargily-pay": "^2.0.5",
+        "firebase/php-jwt": "^7.0",
         "inertiajs/inertia-laravel": "^2.0",
         "laravel/framework": "^13.0",
         "laravel/sanctum": "^4.0",
+        "laravel/socialite": "^5.26",
         "laravel/tinker": "^3.0",
         "league/csv": "^9.28",
         "maatwebsite/excel": "^3.1",

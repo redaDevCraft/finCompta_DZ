@@ -8,28 +8,55 @@ use App\Models\Expense;
 use App\Models\TaxRate;
 use App\Services\ExpenseService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ExpenseController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $company = app('currentCompany');
+
+        $search = trim((string) $request->input('search', ''));
+        $status = $request->input('status');
+        $dateFrom = $request->input('date_from');
+        $dateTo = $request->input('date_to');
 
         $expenses = Expense::query()
             ->where('company_id', $company->id)
             ->with(['contact', 'account'])
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->when($dateFrom, fn ($q) => $q->whereDate('expense_date', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate('expense_date', '<=', $dateTo))
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->where('reference', 'ilike', "%{$search}%")
+                        ->orWhere('description', 'ilike', "%{$search}%")
+                        ->orWhereHas('contact', function ($c) use ($search) {
+                            $c->where('display_name', 'ilike', "%{$search}%")
+                                ->orWhere('raison_sociale', 'ilike', "%{$search}%");
+                        });
+                });
+            })
             ->orderByDesc('expense_date')
+            ->orderByDesc('created_at')
             ->paginate(20)
             ->withQueryString();
 
         return Inertia::render('Expenses/Index', [
             'expenses' => $expenses,
+            'filters' => [
+                'search' => $search,
+                'status' => $status,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+            ],
         ]);
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         $company = app('currentCompany');
 
@@ -56,47 +83,58 @@ class ExpenseController extends Controller
             ->orderBy('code')
             ->get();
 
+        $prefill = [
+            'source_document_id' => $request->query('from_document'),
+            'vendor_name' => $request->query('vendor_name'),
+            'reference' => $request->query('reference'),
+            'expense_date' => $request->query('expense_date'),
+            'total_ht' => $request->query('total_ht'),
+            'total_vat' => $request->query('total_vat'),
+            'total_ttc' => $request->query('total_ttc'),
+            'currency' => $request->query('currency'),
+            'payment_method' => $request->query('payment_method'),
+            'tax_rate_id' => $request->query('tax_rate_id'),
+            'expense_account_id' => $request->query('expense_account_id'),
+            'contact_id' => $request->query('contact_id'),
+        ];
+
         return Inertia::render('Expenses/Create', [
             'contacts' => $contacts,
             'taxRates' => $taxRates,
             'accounts' => $accounts,
+            'prefill' => array_filter($prefill, fn ($v) => $v !== null && $v !== ''),
         ]);
     }
 
-    public function store(\Illuminate\Http\Request $request): RedirectResponse
+    public function store(Request $request): RedirectResponse
     {
         $company = app('currentCompany');
 
-        $validated = $request->validate([
-            'contact_id' => 'nullable|uuid|exists:contacts,id',
-            'reference' => 'nullable|string|max:100',
-            'expense_date' => 'required|date',
-            'due_date' => 'nullable|date|after_or_equal:expense_date',
-            'description' => 'nullable|string|max:2000',
-            'total_ht' => 'required|numeric|min:0',
-            'total_vat' => 'nullable|numeric|min:0',
-            'total_ttc' => 'required|numeric|min:0',
-            'account_id' => 'nullable|uuid|exists:accounts,id',
-            'source_document_id' => 'nullable|uuid',
-        ]);
+        $validated = $this->validateExpense($request);
 
-        $expense = Expense::create([
-            'company_id' => $company->id,
-            'contact_id' => $validated['contact_id'] ?? null,
-            'supplier_snapshot' => null,
-            'reference' => $validated['reference'] ?? null,
-            'expense_date' => $validated['expense_date'],
-            'due_date' => $validated['due_date'] ?? null,
-            'description' => $validated['description'] ?? null,
-            'total_ht' => $validated['total_ht'],
-            'total_vat' => $validated['total_vat'] ?? 0,
-            'total_ttc' => $validated['total_ttc'],
-            'account_id' => $validated['account_id'] ?? null,
-            'status' => 'draft',
-            'source_document_id' => $validated['source_document_id'] ?? null,
-            'ai_extracted' => false,
-            'journal_entry_id' => null,
-        ]);
+        $expense = DB::transaction(function () use ($company, $validated) {
+            $expense = Expense::create([
+                'company_id' => $company->id,
+                'contact_id' => $validated['contact_id'] ?? null,
+                'supplier_snapshot' => null,
+                'reference' => $validated['reference'] ?? null,
+                'expense_date' => $validated['expense_date'],
+                'due_date' => $validated['due_date'] ?? null,
+                'description' => $validated['description'] ?? null,
+                'total_ht' => $validated['total_ht'],
+                'total_vat' => $validated['total_vat'] ?? 0,
+                'total_ttc' => $validated['total_ttc'],
+                'account_id' => $validated['account_id'] ?? null,
+                'status' => 'draft',
+                'source_document_id' => $validated['source_document_id'] ?? null,
+                'ai_extracted' => false,
+                'journal_entry_id' => null,
+            ]);
+
+            $this->syncLinesAndTotals($expense, $validated['lines'] ?? []);
+
+            return $expense;
+        });
 
         return redirect()->route('expenses.show', $expense);
     }
@@ -109,6 +147,8 @@ class ExpenseController extends Controller
             'contact',
             'account',
             'document',
+            'lines.account:id,code,label',
+            'lines.taxRate:id,name,rate_percent',
             'journalEntry.lines.account',
         ]);
 
@@ -117,35 +157,29 @@ class ExpenseController extends Controller
         ]);
     }
 
-    public function update(\Illuminate\Http\Request $request, Expense $expense): RedirectResponse
+    public function update(Request $request, Expense $expense): RedirectResponse
     {
         $this->authorizeExpense($expense);
 
         abort_if(! $expense->isEditable(), 422, 'Dépense déjà confirmée, non modifiable');
 
-        $validated = $request->validate([
-            'contact_id' => 'nullable|uuid|exists:contacts,id',
-            'reference' => 'nullable|string|max:100',
-            'expense_date' => 'required|date',
-            'due_date' => 'nullable|date|after_or_equal:expense_date',
-            'description' => 'nullable|string|max:2000',
-            'total_ht' => 'required|numeric|min:0',
-            'total_vat' => 'nullable|numeric|min:0',
-            'total_ttc' => 'required|numeric|min:0',
-            'account_id' => 'nullable|uuid|exists:accounts,id',
-        ]);
+        $validated = $this->validateExpense($request);
 
-        $expense->update([
-            'contact_id' => $validated['contact_id'] ?? null,
-            'reference' => $validated['reference'] ?? null,
-            'expense_date' => $validated['expense_date'],
-            'due_date' => $validated['due_date'] ?? null,
-            'description' => $validated['description'] ?? null,
-            'total_ht' => $validated['total_ht'],
-            'total_vat' => $validated['total_vat'] ?? 0,
-            'total_ttc' => $validated['total_ttc'],
-            'account_id' => $validated['account_id'] ?? null,
-        ]);
+        DB::transaction(function () use ($expense, $validated) {
+            $expense->update([
+                'contact_id' => $validated['contact_id'] ?? null,
+                'reference' => $validated['reference'] ?? null,
+                'expense_date' => $validated['expense_date'],
+                'due_date' => $validated['due_date'] ?? null,
+                'description' => $validated['description'] ?? null,
+                'total_ht' => $validated['total_ht'],
+                'total_vat' => $validated['total_vat'] ?? 0,
+                'total_ttc' => $validated['total_ttc'],
+                'account_id' => $validated['account_id'] ?? null,
+            ]);
+
+            $this->syncLinesAndTotals($expense, $validated['lines'] ?? []);
+        });
 
         return back()->with('success', 'Dépense mise à jour');
     }
@@ -153,13 +187,13 @@ class ExpenseController extends Controller
     public function confirm(Expense $expense, ExpenseService $service): RedirectResponse
     {
         $this->authorizeExpense($expense);
-    
+
         $user = request()->user();
-    
+
         abort_if(! $user, 403, 'Utilisateur non authentifié');
-    
+
         $result = $service->confirm($expense, app('currentCompany'), $user);
-    
+
         return redirect()
             ->route('expenses.show', $expense)
             ->with('warnings', $result['warnings'] ?? [])
@@ -169,5 +203,83 @@ class ExpenseController extends Controller
     private function authorizeExpense(Expense $expense): void
     {
         abort_unless($expense->company_id === app('currentCompany')->id, 403, 'Accès non autorisé à cette dépense');
+    }
+
+    private function validateExpense(Request $request): array
+    {
+        $company = app('currentCompany');
+
+        return $request->validate([
+            'contact_id' => 'nullable|uuid|exists:contacts,id',
+            'reference' => 'nullable|string|max:100',
+            'expense_date' => 'required|date',
+            'due_date' => 'nullable|date|after_or_equal:expense_date',
+            'description' => 'nullable|string|max:2000',
+            'total_ht' => 'required|numeric|min:0',
+            'total_vat' => 'nullable|numeric|min:0',
+            'total_ttc' => 'required|numeric|min:0',
+            'account_id' => 'nullable|uuid|exists:accounts,id',
+            'source_document_id' => 'nullable|uuid',
+            'lines' => 'nullable|array',
+            'lines.*.designation' => 'required_with:lines|string|max:500',
+            'lines.*.amount_ht' => 'required_with:lines|numeric|min:0',
+            'lines.*.vat_rate_pct' => 'nullable|numeric|min:0|max:100',
+            'lines.*.amount_vat' => 'nullable|numeric|min:0',
+            'lines.*.amount_ttc' => 'required_with:lines|numeric|min:0',
+            'lines.*.tax_rate_id' => 'nullable|uuid',
+            'lines.*.account_id' => 'nullable|uuid',
+        ]);
+    }
+
+    /**
+     * Replace all lines for an expense. When lines are provided, derived totals
+     * (HT / VAT / TTC) are recomputed from the lines and override any header
+     * totals the client sent, guaranteeing consistency with the VAT purchase
+     * report and the purchase journal entry.
+     */
+    private function syncLinesAndTotals(Expense $expense, array $lines): void
+    {
+        $expense->lines()->delete();
+
+        if (empty($lines)) {
+            return;
+        }
+
+        $totalHt = 0.0;
+        $totalVat = 0.0;
+        $totalTtc = 0.0;
+        $sort = 0;
+
+        foreach ($lines as $line) {
+            $ht = round((float) ($line['amount_ht'] ?? 0), 2);
+            $vatRate = (float) ($line['vat_rate_pct'] ?? 0);
+            $vatAmount = isset($line['amount_vat'])
+                ? round((float) $line['amount_vat'], 2)
+                : round($ht * $vatRate / 100, 2);
+            $ttc = isset($line['amount_ttc']) && (float) $line['amount_ttc'] > 0
+                ? round((float) $line['amount_ttc'], 2)
+                : round($ht + $vatAmount, 2);
+
+            $expense->lines()->create([
+                'designation' => $line['designation'],
+                'amount_ht' => $ht,
+                'vat_rate_pct' => $vatRate,
+                'amount_vat' => $vatAmount,
+                'amount_ttc' => $ttc,
+                'tax_rate_id' => $line['tax_rate_id'] ?? null,
+                'account_id' => $line['account_id'] ?? $expense->account_id,
+                'sort_order' => $sort++,
+            ]);
+
+            $totalHt += $ht;
+            $totalVat += $vatAmount;
+            $totalTtc += $ttc;
+        }
+
+        $expense->update([
+            'total_ht' => round($totalHt, 2),
+            'total_vat' => round($totalVat, 2),
+            'total_ttc' => round($totalTtc, 2),
+        ]);
     }
 }

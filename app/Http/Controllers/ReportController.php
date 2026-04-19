@@ -3,14 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Exports\VatReportExport;
+use App\Models\Account;
 use App\Models\ExpenseLine;
 use App\Models\InvoiceVatBucket;
+use App\Services\AgedBalanceService;
+use App\Services\BilanService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class ReportController extends Controller
 {
@@ -119,5 +124,80 @@ class ReportController extends Controller
                 'balance' => $balance,
             ],
         ];
+    }
+
+    public function bilan(Request $request, BilanService $service): Response
+    {
+        $company = app('currentCompany');
+        $asOf = $request->input('as_of_date', now()->endOfYear()->toDateString());
+
+        $bilan = $service->compute($company, $asOf);
+
+        return Inertia::render('Reports/Bilan', $bilan);
+    }
+
+    public function bilanPdf(Request $request, BilanService $service): HttpResponse
+    {
+        $company = app('currentCompany');
+        $asOf = $request->input('as_of_date', now()->endOfYear()->toDateString());
+
+        $bilan = $service->compute($company, $asOf);
+
+        $pdf = Pdf::loadView('pdf.bilan', ['bilan' => $bilan])
+            ->setPaper('a4');
+
+        return $pdf->download("bilan_{$asOf}.pdf");
+    }
+
+    public function agedReceivables(Request $request, AgedBalanceService $service): Response
+    {
+        return $this->agedBalance($request, $service, 'receivable');
+    }
+
+    public function agedPayables(Request $request, AgedBalanceService $service): Response
+    {
+        return $this->agedBalance($request, $service, 'payable');
+    }
+
+    protected function agedBalance(
+        Request $request,
+        AgedBalanceService $service,
+        string $side
+    ): Response {
+        $company = app('currentCompany');
+        $asOf = $request->input('as_of_date', now()->toDateString());
+
+        $defaultPrefix = $side === 'receivable' ? '411' : '401';
+        $accountCode = $request->input('account_code', $defaultPrefix);
+
+        $account = Account::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->where('is_lettrable', true)
+            ->where(function ($q) use ($accountCode) {
+                $q->where('code', $accountCode)
+                    ->orWhere('code', 'LIKE', $accountCode.'%');
+            })
+            ->orderBy('code')
+            ->first();
+
+        $lettrableAccounts = Account::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->where('is_lettrable', true)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'code', 'label']);
+
+        $report = $account
+            ? $service->compute($account, $asOf)
+            : ['rows' => [], 'totals' => ['b0_30' => 0, 'b30_60' => 0, 'b60_90' => 0, 'b90_plus' => 0, 'total' => 0]];
+
+        return Inertia::render('Reports/AgedBalance', [
+            'side' => $side,
+            'as_of_date' => $asOf,
+            'account_code' => $accountCode,
+            'account' => $account,
+            'accounts' => $lettrableAccounts,
+            'report' => $report,
+        ]);
     }
 }

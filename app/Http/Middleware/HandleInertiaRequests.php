@@ -32,9 +32,47 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
+            'csrf_token' => csrf_token(),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $request->user() ? [
+                    'id' => $request->user()->id,
+                    'name' => $request->user()->name,
+                    'email' => $request->user()->email,
+                    'avatar_url' => $request->user()->avatar_url,
+                ] : null,
+                'roles' => fn () => $request->user()
+                    ? $request->user()->getRoleNames()->values()->all()
+                    : [],
+                'permissions' => fn () => $request->user()
+                    ? $request->user()->getAllPermissions()->pluck('name')->values()->all()
+                    : [],
             ],
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+                'warning' => fn () => $request->session()->get('warning'),
+                'error' => fn () => $request->session()->get('error'),
+            ],
+            'subscription' => function () use ($request) {
+                if (! $request->user() || ! app()->has('currentCompany')) {
+                    return null;
+                }
+                $sub = app('currentCompany')->subscription()->with('plan:id,code,name')->first();
+                if (! $sub) {
+                    return null;
+                }
+
+                return [
+                    'status' => $sub->status,
+                    'is_on_trial' => $sub->isOnTrial(),
+                    'is_active' => $sub->isActive(),
+                    'days_remaining' => $sub->daysRemaining(),
+                    'trial_ends_at' => optional($sub->trial_ends_at)?->toIso8601String(),
+                    'plan' => $sub->plan ? [
+                        'code' => $sub->plan->code,
+                        'name' => $sub->plan->name,
+                    ] : null,
+                ];
+            },
             'ziggy' => fn () => [
                 ...(new Ziggy)->toArray(),
                 'location' => $request->url(),

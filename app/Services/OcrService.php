@@ -5,188 +5,272 @@ namespace App\Services;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
 
+/**
+ * Local OCR service backed by Tesseract.
+ *
+ * - Images are OCR'd directly by Tesseract.
+ * - PDFs are rasterized via Poppler's pdftoppm, then each page is OCR'd.
+ *   A digital-PDF fast-path via ocrmypdf (text extraction) is available
+ *   when OCR_USE_OCRMYPDF=true.
+ *
+ * The service is deliberately AI-free. Structured parsing is performed
+ * in a separate OcrHeuristicParser.
+ */
 class OcrService
 {
     public function extractText(string $fileContents, string $mimeType): string
     {
-        return match ($mimeType) {
-            'application/pdf' => $this->extractFromPdf($fileContents),
-            'image/jpeg',
-            'image/jpg',
-            'image/png',
-            'image/heic' => $this->extractFromImage($fileContents, $mimeType),
-            default => throw new RuntimeException("Unsupported mime type: {$mimeType}"),
+        $raw = match (true) {
+            $mimeType === 'application/pdf' => $this->extractFromPdf($fileContents),
+            str_starts_with($mimeType, 'image/') => $this->extractFromImage($fileContents, $mimeType),
+            default => throw new RuntimeException("Unsupported mime type for OCR: {$mimeType}"),
         };
-    }
 
-    protected function extractFromPdf(string $fileContents): string
-    {
-        $tmpPdf = tempnam(sys_get_temp_dir(), 'ocr_') . '.pdf';
-        $outPdf = tempnam(sys_get_temp_dir(), 'ocr_out_') . '.pdf';
-        $sidecar = tempnam(sys_get_temp_dir(), 'ocr_txt_') . '.txt';
-
-        try {
-            file_put_contents($tmpPdf, $fileContents);
-
-            try {
-                Process::run([
-                    'ocrmypdf',
-                    '--force-ocr',
-                    '--sidecar',
-                    $sidecar,
-                    '-l',
-                    'fra+ara',
-                    $tmpPdf,
-                    $outPdf,
-                ])->throw();
-
-                if (is_file($sidecar)) {
-                    return trim(file_get_contents($sidecar));
-                }
-            } catch (\Throwable $e) {
-                return $this->extractPdfWithTesseract($tmpPdf);
-            }
-
-            return '';
-        } finally {
-            foreach ([$tmpPdf, $outPdf, $sidecar] as $file) {
-                if (is_file($file)) {
-                    @unlink($file);
-                }
-            }
-        }
-    }
-
-    protected function extractPdfWithTesseract(string $tmpPdf): string
-    {
-        $imgBase = tempnam(sys_get_temp_dir(), 'ocr_img_');
-        $generatedImages = [];
-        $generatedTexts = [];
-
-        try {
-            Process::run([
-                'pdftoppm',
-                '-jpeg',
-                '-r',
-                '300',
-                $tmpPdf,
-                $imgBase,
-            ])->throw();
-
-            $generatedImages = glob($imgBase . '*.jpg') ?: [];
-            sort($generatedImages);
-
-            $parts = [];
-
-            foreach ($generatedImages as $imagePath) {
-                $outBase = tempnam(sys_get_temp_dir(), 'ocr_txt_');
-                @unlink($outBase);
-
-                Process::run([
-                    'tesseract',
-                    $imagePath,
-                    $outBase,
-                    '-l',
-                    'fra+ara',
-                    '--oem',
-                    '1',
-                ])->throw();
-
-                $txtPath = $outBase . '.txt';
-                $generatedTexts[] = $txtPath;
-
-                if (is_file($txtPath)) {
-                    $parts[] = trim(file_get_contents($txtPath));
-                }
-            }
-
-            return trim(implode("\n\n", array_filter($parts)));
-        } finally {
-            foreach ($generatedImages as $imagePath) {
-                if (is_file($imagePath)) {
-                    @unlink($imagePath);
-                }
-            }
-
-            foreach ($generatedTexts as $txtPath) {
-                if (is_file($txtPath)) {
-                    @unlink($txtPath);
-                }
-            }
-
-            if (is_file($imgBase)) {
-                @unlink($imgBase);
-            }
-        }
+        return OcrTextNormalizer::refine($raw);
     }
 
     protected function extractFromImage(string $fileContents, string $mimeType): string
     {
-        $tmpImage = tempnam(sys_get_temp_dir(), 'ocr_img_') . $this->extensionFromMime($mimeType);
+        $tmpImage = $this->writeTempFile($fileContents, $this->extensionFromMime($mimeType));
 
         try {
-            file_put_contents($tmpImage, $fileContents);
+            $raw = $this->runTesseract($tmpImage);
+            $raw = $this->mergeArabicBoost($raw, $tmpImage);
 
-            try {
-                return $this->extractWithPaddle($tmpImage);
-            } catch (\Throwable $e) {
-                return $this->extractWithTesseract($tmpImage);
-            }
+            return $raw;
         } finally {
-            if (is_file($tmpImage)) {
-                @unlink($tmpImage);
+            $this->safeUnlink($tmpImage);
+        }
+    }
+
+    protected function extractFromPdf(string $fileContents): string
+    {
+        $tmpPdf = $this->writeTempFile($fileContents, '.pdf');
+
+        try {
+            if ((bool) config('ocr.pdf.use_ocrmypdf')) {
+                $native = $this->tryOcrMyPdf($tmpPdf);
+                if ($native !== null && $native !== '') {
+                    return $native;
+                }
             }
+
+            return $this->rasterizePdfAndOcr($tmpPdf);
+        } finally {
+            $this->safeUnlink($tmpPdf);
         }
     }
 
-    protected function extractWithPaddle(string $imagePath): string
+    protected function tryOcrMyPdf(string $pdfPath): ?string
     {
-        $script = base_path('scripts/paddle_ocr.py');
+        $bin = (string) config('ocr.pdf.ocrmypdf_bin');
+        $sidecar = tempnam(sys_get_temp_dir(), 'ocr_txt_').'.txt';
+        $outPdf = tempnam(sys_get_temp_dir(), 'ocr_out_').'.pdf';
 
-        if (!is_file($script)) {
-            throw new RuntimeException('PaddleOCR script not found');
+        try {
+            $result = Process::run([
+                $bin,
+                '--force-ocr',
+                '--sidecar',
+                $sidecar,
+                '-l',
+                $this->tesseractLangForOcrMyPdf(),
+                $pdfPath,
+                $outPdf,
+            ]);
+
+            if ($result->failed()) {
+                return null;
+            }
+
+            return is_file($sidecar) ? trim((string) file_get_contents($sidecar)) : null;
+        } catch (\Throwable $e) {
+            return null;
+        } finally {
+            $this->safeUnlink($sidecar);
+            $this->safeUnlink($outPdf);
         }
-
-        $result = Process::run([
-            'python3',
-            $script,
-            $imagePath,
-        ]);
-
-        $result->throw();
-
-        return trim($result->output());
     }
 
-    protected function extractWithTesseract(string $imagePath): string
+    protected function rasterizePdfAndOcr(string $pdfPath): string
     {
+        $bin = (string) config('ocr.pdf.pdftoppm_bin');
+        $dpi = (int) config('ocr.pdf.dpi', 300);
+
+        $imgBase = tempnam(sys_get_temp_dir(), 'ocr_img_');
+
+        try {
+            $result = Process::run([
+                $bin,
+                '-jpeg',
+                '-r',
+                (string) $dpi,
+                $pdfPath,
+                $imgBase,
+            ]);
+
+            if ($result->failed()) {
+                throw new RuntimeException(
+                    'Impossible de convertir le PDF en images. Vérifiez que Poppler (pdftoppm) est installé. '
+                    .$result->errorOutput()
+                );
+            }
+
+            $images = glob($imgBase.'*.jpg') ?: [];
+            sort($images);
+
+            if ($images === []) {
+                throw new RuntimeException('Aucune page générée à partir du PDF.');
+            }
+
+            $parts = [];
+            foreach ($images as $index => $imagePath) {
+                try {
+                    $pageText = $this->runTesseract($imagePath);
+                    $pageText = $this->mergeArabicBoost($pageText, $imagePath);
+                    if ($pageText !== '') {
+                        $parts[] = '--- Page '.($index + 1)." ---\n".$pageText;
+                    }
+                } finally {
+                    $this->safeUnlink($imagePath);
+                }
+            }
+
+            return trim(implode("\n\n", $parts));
+        } finally {
+            $this->safeUnlink($imgBase);
+        }
+    }
+
+    /**
+     * @param  array{lang?:string,oem?:int,psm?:int}|null  $overrides
+     */
+    protected function runTesseract(string $imagePath, ?array $overrides = null): string
+    {
+        $bin = (string) config('ocr.tesseract.bin');
+        $lang = (string) ($overrides['lang'] ?? config('ocr.tesseract.lang', 'eng'));
+        $oem = (int) ($overrides['oem'] ?? config('ocr.tesseract.oem', 1));
+        $psm = (int) ($overrides['psm'] ?? config('ocr.tesseract.psm', 3));
+        $timeout = (int) config('ocr.tesseract.timeout', 90);
+
         $outBase = tempnam(sys_get_temp_dir(), 'ocr_txt_');
         @unlink($outBase);
-
-        $txtPath = $outBase . '.txt';
+        $txtPath = $outBase.'.txt';
 
         try {
-            Process::run([
-                'tesseract',
+            $cmd = [
+                $bin,
                 $imagePath,
                 $outBase,
-                '-l',
-                'fra+ara',
-                '--oem',
-                '1',
-            ])->throw();
+                '-l', $lang,
+                '--oem', (string) $oem,
+                '--psm', (string) $psm,
+            ];
 
-            return is_file($txtPath)
-                ? trim(file_get_contents($txtPath))
-                : '';
+            foreach ((array) config('ocr.tesseract.config', []) as $cfgKey => $cfgVal) {
+                if ($cfgKey === '' || $cfgVal === null || $cfgVal === '') {
+                    continue;
+                }
+                $cmd[] = '-c';
+                $cmd[] = $cfgKey.'='.$cfgVal;
+            }
+
+            $result = Process::timeout($timeout)->run($cmd);
+
+            if ($result->failed()) {
+                throw new RuntimeException(
+                    'Tesseract a échoué: '.trim($result->errorOutput() ?: $result->output())
+                );
+            }
+
+            if (! is_file($txtPath)) {
+                return '';
+            }
+
+            $text = (string) file_get_contents($txtPath);
+
+            return trim($text);
         } finally {
-            if (is_file($txtPath)) {
-                @unlink($txtPath);
-            }
+            $this->safeUnlink($txtPath);
+            $this->safeUnlink($outBase);
+        }
+    }
 
-            if (is_file($outBase)) {
-                @unlink($outBase);
-            }
+    protected function tesseractLangForOcrMyPdf(): string
+    {
+        return str_replace('+', '+', (string) config('ocr.tesseract.lang', 'eng'));
+    }
+
+    /**
+     * Ratio of Arabic script codepoints to total string length (UTF-8 safe).
+     */
+    protected function arabicScriptRatio(string $text): float
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return 0.0;
+        }
+
+        $len = mb_strlen($text);
+        if ($len < 1) {
+            return 0.0;
+        }
+
+        $matches = preg_match_all('/\p{Arabic}/u', $text);
+
+        return ($matches !== false && $matches > 0) ? $matches / $len : 0.0;
+    }
+
+    /**
+     * Append a second OCR pass when primary text is Latin-heavy but the document
+     * may carry Arabic totals (common on Algerian supplier invoices).
+     */
+    protected function mergeArabicBoost(string $primary, string $imagePath): string
+    {
+        if (! (bool) config('ocr.tesseract.arabic_boost_pass', false)) {
+            return $primary;
+        }
+
+        $threshold = (float) config('ocr.tesseract.arabic_boost_min_primary_ratio', 0.06);
+        if ($this->arabicScriptRatio($primary) >= $threshold) {
+            return $primary;
+        }
+
+        $boostLang = (string) config('ocr.tesseract.arabic_boost_lang', 'ara+fra+eng');
+        $boostPsm = (int) config('ocr.tesseract.arabic_boost_psm', 4);
+
+        try {
+            $boost = $this->runTesseract($imagePath, [
+                'lang' => $boostLang,
+                'psm' => $boostPsm,
+            ]);
+        } catch (\Throwable) {
+            return $primary;
+        }
+
+        if ($boost === '' || $boost === $primary) {
+            return $primary;
+        }
+
+        if ($this->arabicScriptRatio($boost) <= $this->arabicScriptRatio($primary)) {
+            return $primary;
+        }
+
+        return rtrim($primary)."\n\n--- OCR ({$boostLang}, psm={$boostPsm}) ---\n".$boost;
+    }
+
+    protected function writeTempFile(string $contents, string $extension): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'ocr_in_').$extension;
+        file_put_contents($path, $contents);
+
+        return $path;
+    }
+
+    protected function safeUnlink(?string $path): void
+    {
+        if ($path && is_file($path)) {
+            @unlink($path);
         }
     }
 
@@ -195,6 +279,7 @@ class OcrService
         return match ($mimeType) {
             'image/jpeg', 'image/jpg' => '.jpg',
             'image/png' => '.png',
+            'image/webp' => '.webp',
             'image/heic' => '.heic',
             default => '.bin',
         };

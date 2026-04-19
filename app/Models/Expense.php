@@ -5,14 +5,18 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Expense extends Model
 {
     use SoftDeletes;
 
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -68,6 +72,11 @@ class Expense extends Model
         return $this->belongsTo(JournalEntry::class, 'journal_entry_id');
     }
 
+    public function lines(): HasMany
+    {
+        return $this->hasMany(ExpenseLine::class)->orderBy('sort_order');
+    }
+
     public function scopeForCompany(Builder $query, string $companyId): Builder
     {
         return $query->where('company_id', $companyId);
@@ -87,12 +96,19 @@ class Expense extends Model
     {
         return $this->status === 'draft';
     }
+
     protected static function booted(): void
-{
-    static::addGlobalScope('company', function (Builder $builder) {
-        if (app()->has('currentCompany')) {
-            $builder->where($builder->getModel()->getTable() . '.company_id', app('currentCompany')->id);
-        }
-    });
-}
+    {
+        static::creating(function (Expense $expense): void {
+            if (empty($expense->id)) {
+                $expense->id = (string) Str::uuid();
+            }
+        });
+
+        static::addGlobalScope('company', function (Builder $builder) {
+            if (app()->has('currentCompany')) {
+                $builder->where($builder->getModel()->getTable().'.company_id', app('currentCompany')->id);
+            }
+        });
+    }
 }

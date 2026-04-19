@@ -19,7 +19,27 @@ class EnsureCompanySelected
             return $next($request);
         }
 
+        $userCompaniesCount = $request->user()
+            ->companies()
+            ->whereNull('company_users.revoked_at')
+            ->count();
+
+        // Freshly-registered user with zero companies → onboarding.
+        if ($userCompaniesCount === 0) {
+            return redirect()->route('onboarding.company');
+        }
+
         $companyId = session('current_company_id') ?? $request->header('X-Company-ID');
+
+        if (! $companyId && $userCompaniesCount === 1) {
+            // Auto-pick the only company.
+            $only = $request->user()
+                ->companies()
+                ->whereNull('company_users.revoked_at')
+                ->first();
+            session(['current_company_id' => $only->id]);
+            $companyId = $only->id;
+        }
 
         if (! $companyId) {
             return redirect()->route('company.select');

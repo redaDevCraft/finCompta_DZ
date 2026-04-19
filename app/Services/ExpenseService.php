@@ -14,48 +14,63 @@ class ExpenseService
         protected TaxComputationService $tax,
         protected ComplianceEngine $compliance,
         protected JournalService $journal,
-    ) {
+    ) {}
+
+    public function confirm(Expense $expense, Company $company, User $user): array
+    {
+        if ($expense->status !== 'draft') {
+            abort(422, 'Dépense déjà confirmée');
+        }
+
+        $warnings = $this->verifyTaxConsistency($expense);
+
+        DB::transaction(function () use ($expense, $company) {
+            $expense->update([
+                'status' => 'confirmed',
+            ]);
+
+            $this->journal->draftPurchaseEntry($expense->fresh(), $company);
+        });
+
+        return [
+            'success' => true,
+            'warnings' => $warnings,
+        ];
     }
 
-    public function confirm(Expense $expense): Expense
+    /**
+     * Soft checks on HT / TVA / TTC coherence and missing mandatory fields.
+     *
+     * @return string[]
+     */
+    private function verifyTaxConsistency(Expense $expense): array
     {
-        $expenseDate = $expense->expense_date instanceof Carbon
-            ? $expense->expense_date
-            : Carbon::parse($expense->expense_date);
+        $warnings = [];
 
-        if ((float) $expense->total_ht <= 0) {
-            abort(422, 'Le total HT doit être supérieur à zéro.');
+        $ht = (float) $expense->total_ht;
+        $vat = (float) $expense->total_vat;
+        $ttc = (float) $expense->total_ttc;
+
+        if (abs(($ht + $vat) - $ttc) > 0.01) {
+            $warnings[] = sprintf(
+                'Incohérence HT + TVA ≠ TTC (%.2f + %.2f = %.2f, attendu %.2f).',
+                $ht, $vat, $ht + $vat, $ttc
+            );
         }
 
-        if ((float) $expense->total_ttc < (float) $expense->total_ht) {
-            abort(422, 'Le total TTC ne peut pas être inférieur au total HT.');
+        if ($ttc > 0 && $vat === 0.0) {
+            $warnings[] = 'Aucune TVA saisie — vérifier l’exonération.';
         }
 
-        if (! $expenseDate || $expenseDate->lt(now()->subYear())) {
-            abort(422, 'La date de dépense est invalide ou trop ancienne.');
+        if ($expense->contact_id === null) {
+            $warnings[] = 'Aucun fournisseur associé à la dépense.';
         }
 
-        if (! $expense->isEditable()) {
-            abort(422, 'Cette dépense ne peut plus être confirmée.');
+        if (empty($expense->account_id)) {
+            $warnings[] = 'Aucun compte de charge sélectionné.';
         }
 
-        // Draft and post journal entry
-        $journalEntry = $this->journal->draftPurchaseEntry($expense, $expense->company);
-        $this->journal->post($journalEntry, auth()->user());
-
-        $expense->update([
-            'status' => 'posted',
-            'posted_at' => now(),
-            'posted_by' => auth()->id(),
-            'journal_entry_id' => $journalEntry->id,
-        ]);
-
-        return $expense->fresh();
-        // journal posting + status update here
-        // $journalEntry = ...
-        // $expense->update([...]);
-
-        return $expense;
+        return $warnings;
     }
 
     public function applyAiSuggestions(Expense $expense, array $acceptedFields): void

@@ -6,10 +6,11 @@ use App\Jobs\GenerateInvoicePdf;
 use App\Models\Company;
 use App\Models\Invoice;
 use App\Models\InvoiceSequence;
+use App\Models\JournalEntry;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
-
+use Illuminate\Support\Facades\DB;
 
 class InvoiceService
 {
@@ -18,8 +19,7 @@ class InvoiceService
         protected ComplianceEngine $compliance,
         protected JournalService $journal,
         protected PdfService $pdf,
-    ) {
-    }
+    ) {}
 
     public function saveLines(Invoice $invoice, array $linesData): void
     {
@@ -81,7 +81,7 @@ class InvoiceService
 
         $errors = $this->compliance->validateInvoiceForIssuance($invoice, $company);
 
-        if (!empty($errors)) {
+        if (! empty($errors)) {
             return [
                 'success' => false,
                 'errors' => $errors,
@@ -89,7 +89,7 @@ class InvoiceService
         }
 
         DB::transaction(function () use ($invoice, $company, $user) {
-            $number = $this->assignSequenceNumber($invoice, $company);
+            $number = $this->assignSequenceNumber($invoice);
 
             $invoice->client_snapshot = $invoice->contact?->toArray();
 
@@ -117,15 +117,49 @@ class InvoiceService
         ];
     }
 
-    public function void(Invoice $invoice, User $user): void
+    public function void(Invoice $invoice, Company $company, User $user): void
     {
         if ($invoice->status === 'draft') {
             abort(422, 'Un brouillon ne peut être annulé, supprimez-le');
         }
 
-        $invoice->update([
-            'status' => 'voided',
-        ]);
+        if ($invoice->status === 'voided') {
+            abort(422, 'Cette facture est déjà annulée');
+        }
+
+        if (in_array($invoice->status, ['paid', 'partially_paid'], true)) {
+            abort(
+                422,
+                'Facture déjà réglée (partiellement) — émettez une facture d\'avoir plutôt que de l\'annuler'
+            );
+        }
+
+        DB::transaction(function () use ($invoice, $company, $user) {
+            if ($invoice->journal_entry_id) {
+                /** @var JournalEntry|null $entry */
+                $entry = JournalEntry::with('lines')->find($invoice->journal_entry_id);
+
+                if ($entry) {
+                    // Block voiding when the original entry sits in a locked
+                    // period — the reversal must go to the same/newer period.
+                    if ($entry->period && $entry->period->status === 'locked') {
+                        abort(422, 'L\'écriture est sur une période verrouillée — impossible d\'annuler.');
+                    }
+
+                    $this->journal->reverseEntry(
+                        $entry,
+                        $company,
+                        $user,
+                        Carbon::now(),
+                        'Annulation facture '.($invoice->invoice_number ?? $invoice->id)
+                    );
+                }
+            }
+
+            $invoice->update([
+                'status' => 'voided',
+            ]);
+        });
     }
 
     public function createCreditNote(Invoice $originalInvoice, Company $company, User $user): Invoice
@@ -177,7 +211,8 @@ class InvoiceService
             return $creditNote->fresh(['lines', 'vatBuckets', 'contact']);
         });
     }
-     public function assignSequenceNumber(Invoice $invoice): string
+
+    public function assignSequenceNumber(Invoice $invoice): string
     {
         try {
             return $this->assignSequenceNumberOnce($invoice);
@@ -201,7 +236,7 @@ class InvoiceService
             $nextNumber = $sequence->last_number + 1;
             $formattedNumber = sprintf(
                 '%s%05d',
-                $sequence->prefix ? $sequence->prefix . '-' : '',
+                $sequence->prefix ? $sequence->prefix.'-' : '',
                 $nextNumber
             );
 
@@ -217,8 +252,6 @@ class InvoiceService
             return $formattedNumber;
         });
     }
-
-
 
     private function resolveBucketTaxRateId($computedLines, float $ratePct): ?string
     {

@@ -14,7 +14,10 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            PlanSeeder::class,
             TaxRateSeeder::class,
+            RolePermissionSeeder::class,
+            AdminUserSeeder::class,
         ]);
 
         if (app()->environment('local')) {
@@ -62,6 +65,10 @@ class DatabaseSeeder extends Seeder
             }
 
             $this->callWith(CompanyBootstrapSeeder::class, [
+                'companyId' => $company->id,
+            ]);
+
+            $this->callWith(DemoDataSeeder::class, [
                 'companyId' => $company->id,
             ]);
         }

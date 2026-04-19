@@ -119,6 +119,8 @@ class JournalService
 
     public function draftPurchaseEntry(Expense $expense, Company $company): JournalEntry
     {
+        $expense->loadMissing('lines');
+
         $period = $this->getOrCreatePeriod($company, Carbon::parse($expense->expense_date));
 
         $entry = JournalEntry::create([
@@ -135,37 +137,81 @@ class JournalService
             'posted_by' => null,
         ]);
 
-        $expenseAccount = $expense->account_id
-            ? Account::where('company_id', $company->id)
-                ->where('id', $expense->account_id)
-                ->where('is_active', true)
-                ->firstOrFail()
-            : $this->findAccount($company, '601');
-
         $supplierAccount = $this->findAccount($company, '401');
         $vatDeductibleAccount = $this->findAccount($company, '4456');
 
         $contactId = $expense->contact_id;
         $sortOrder = 0;
 
-        $entry->lines()->create([
-            'account_id' => $expenseAccount->id,
-            'contact_id' => $contactId,
-            'debit' => (float) $expense->total_ht,
-            'credit' => 0,
-            'description' => 'Charge HT',
-            'sort_order' => $sortOrder++,
-        ]);
+        // When detailed lines exist we post one debit per expense account to
+        // keep the analytical breakdown of charges accurate (and the VAT
+        // purchase report per-rate). Otherwise we fall back to the header totals.
+        if ($expense->lines->isNotEmpty()) {
+            $groupedHt = [];
+            $groupedVat = 0.0;
 
-        if ((float) $expense->total_vat > 0) {
+            foreach ($expense->lines as $line) {
+                $accountId = $line->account_id ?: $expense->account_id;
+                $account = $accountId
+                    ? Account::where('company_id', $company->id)
+                        ->where('id', $accountId)
+                        ->where('is_active', true)
+                        ->first()
+                    : null;
+                $account ??= $this->findAccount($company, '601');
+
+                $groupedHt[$account->id] = ($groupedHt[$account->id] ?? 0) + (float) $line->amount_ht;
+                $groupedVat += (float) $line->amount_vat;
+            }
+
+            foreach ($groupedHt as $accountId => $amountHt) {
+                $entry->lines()->create([
+                    'account_id' => $accountId,
+                    'contact_id' => $contactId,
+                    'debit' => round($amountHt, 2),
+                    'credit' => 0,
+                    'description' => 'Charge HT',
+                    'sort_order' => $sortOrder++,
+                ]);
+            }
+
+            if ($groupedVat > 0) {
+                $entry->lines()->create([
+                    'account_id' => $vatDeductibleAccount->id,
+                    'contact_id' => $contactId,
+                    'debit' => round($groupedVat, 2),
+                    'credit' => 0,
+                    'description' => 'TVA déductible',
+                    'sort_order' => $sortOrder++,
+                ]);
+            }
+        } else {
+            $expenseAccount = $expense->account_id
+                ? Account::where('company_id', $company->id)
+                    ->where('id', $expense->account_id)
+                    ->where('is_active', true)
+                    ->firstOrFail()
+                : $this->findAccount($company, '601');
+
             $entry->lines()->create([
-                'account_id' => $vatDeductibleAccount->id,
+                'account_id' => $expenseAccount->id,
                 'contact_id' => $contactId,
-                'debit' => (float) $expense->total_vat,
+                'debit' => (float) $expense->total_ht,
                 'credit' => 0,
-                'description' => 'TVA déductible',
+                'description' => 'Charge HT',
                 'sort_order' => $sortOrder++,
             ]);
+
+            if ((float) $expense->total_vat > 0) {
+                $entry->lines()->create([
+                    'account_id' => $vatDeductibleAccount->id,
+                    'contact_id' => $contactId,
+                    'debit' => (float) $expense->total_vat,
+                    'credit' => 0,
+                    'description' => 'TVA déductible',
+                    'sort_order' => $sortOrder++,
+                ]);
+            }
         }
 
         $entry->lines()->create([
@@ -203,6 +249,57 @@ class JournalService
             'posted_at' => now(),
             'posted_by' => $user->id,
         ]);
+    }
+
+    /**
+     * Create a counter-entry reversing every line of $original on today's date
+     * (or a caller-provided date). The reversal is posted immediately when the
+     * original was posted, otherwise kept as a draft.
+     */
+    public function reverseEntry(JournalEntry $original, Company $company, User $user, ?Carbon $date = null, ?string $reason = null): JournalEntry
+    {
+        $original->loadMissing('lines');
+
+        $reverseDate = $date ?? Carbon::now();
+        $period = $this->getOrCreatePeriod($company, $reverseDate);
+
+        $reversal = JournalEntry::create([
+            'company_id' => $company->id,
+            'period_id' => $period->id,
+            'entry_date' => $reverseDate->toDateString(),
+            'journal_code' => $original->journal_code,
+            'reference' => 'EXTOURNE — '.($original->reference ?? $original->id),
+            'description' => $reason ?: ('Extourne de '.($original->reference ?? $original->id)),
+            'status' => 'draft',
+            'source_type' => 'reversal',
+            'source_id' => $original->id,
+            'posted_at' => null,
+            'posted_by' => null,
+        ]);
+
+        $sortOrder = 0;
+        foreach ($original->lines as $line) {
+            $reversal->lines()->create([
+                'account_id' => $line->account_id,
+                'contact_id' => $line->contact_id,
+                'debit' => (float) $line->credit,
+                'credit' => (float) $line->debit,
+                'description' => 'Extourne — '.$line->description,
+                'sort_order' => $sortOrder++,
+            ]);
+        }
+
+        $reversal->load('lines');
+
+        if (! $reversal->isBalanced()) {
+            abort(422, 'Écriture d\'extourne déséquilibrée');
+        }
+
+        if ($original->status === 'posted') {
+            $this->post($reversal, $user);
+        }
+
+        return $reversal->fresh('lines');
     }
 
     private function findAccount(Company $company, string $code): Account

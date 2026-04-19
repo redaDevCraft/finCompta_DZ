@@ -1,0 +1,63 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
+
+class Plan extends Model
+{
+    protected $primaryKey = 'id';
+
+    protected $keyType = 'string';
+
+    public $incrementing = false;
+
+    protected $fillable = [
+        'code',
+        'name',
+        'tagline',
+        'monthly_price_dzd',
+        'yearly_price_dzd',
+        'trial_days',
+        'features',
+        'max_users',
+        'max_invoices_per_month',
+        'max_documents_per_month',
+        'is_active',
+        'sort_order',
+    ];
+
+    protected $casts = [
+        'features' => 'array',
+        'is_active' => 'boolean',
+        'monthly_price_dzd' => 'integer',
+        'yearly_price_dzd' => 'integer',
+        'trial_days' => 'integer',
+        'max_users' => 'integer',
+        'max_invoices_per_month' => 'integer',
+        'max_documents_per_month' => 'integer',
+        'sort_order' => 'integer',
+    ];
+
+    protected static function boot(): void
+    {
+        parent::boot();
+        static::creating(function (Plan $model) {
+            if (empty($model->id)) {
+                $model->id = (string) Str::uuid();
+            }
+        });
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function priceForCycle(string $cycle): int
+    {
+        return $cycle === 'yearly' ? (int) $this->yearly_price_dzd : (int) $this->monthly_price_dzd;
+    }
+}

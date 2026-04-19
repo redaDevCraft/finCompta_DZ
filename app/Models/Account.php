@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Account extends Model
 {
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -23,11 +25,13 @@ class Account extends Model
         'is_system',
         'parent_code',
         'is_active',
+        'is_lettrable',
     ];
 
     protected $casts = [
         'is_system' => 'boolean',
         'is_active' => 'boolean',
+        'is_lettrable' => 'boolean',
         'class' => 'integer',
     ];
 
@@ -63,16 +67,27 @@ class Account extends Model
         return $query->where('is_active', true);
     }
 
+    public function scopeLettrable(Builder $query): Builder
+    {
+        return $query->where('is_lettrable', true);
+    }
+
+    public function letterings(): HasMany
+    {
+        return $this->hasMany(Lettering::class);
+    }
+
     public function isDeletable(): bool
     {
-        return !$this->is_system;
+        return ! $this->is_system;
     }
+
     protected static function booted(): void
-{
-    static::addGlobalScope('company', function (Builder $builder) {
-        if (app()->has('currentCompany')) {
-            $builder->where($builder->getModel()->getTable() . '.company_id', app('currentCompany')->id);
-        }
-    });
-}
+    {
+        static::addGlobalScope('company', function (Builder $builder) {
+            if (app()->has('currentCompany')) {
+                $builder->where($builder->getModel()->getTable().'.company_id', app('currentCompany')->id);
+            }
+        });
+    }
 }

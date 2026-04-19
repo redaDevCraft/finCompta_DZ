@@ -6,13 +6,16 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class FiscalPeriod extends Model
 {
     public $timestamps = false;
 
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -30,6 +33,14 @@ class FiscalPeriod extends Model
         'month' => 'integer',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (FiscalPeriod $period): void {
+            if (empty($period->id)) {
+                $period->id = (string) Str::uuid();
+            }
+        });
+    }
 
     public function company(): BelongsTo
     {

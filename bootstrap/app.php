@@ -1,10 +1,16 @@
 <?php
 
+use App\Http\Middleware\CheckCompanyRole;
 use App\Http\Middleware\EnsureCompanySelected;
+use App\Http\Middleware\EnsureSubscriptionActive;
+use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Inertia\Inertia;
+use Spatie\Permission\Middleware\PermissionMiddleware;
+use Spatie\Permission\Middleware\RoleMiddleware;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -16,15 +22,23 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
-            \App\Http\Middleware\HandleInertiaRequests::class,
-            \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
+            HandleInertiaRequests::class,
+            AddLinkHeadersForPreloadedAssets::class,
         ]);
         $middleware->alias([
             'company' => EnsureCompanySelected::class,
-            'role' => \App\Http\Middleware\CheckCompanyRole::class,
+            'role' => CheckCompanyRole::class,
+            'subscribed' => EnsureSubscriptionActive::class,
+            // Spatie (global app roles) — distinct from `role` (company pivot: owner, accountant).
+            'spatie_role' => RoleMiddleware::class,
+            'spatie_permission' => PermissionMiddleware::class,
         ]);
 
-        //
+        // Chargily webhook must not be CSRF-protected.
+        $middleware->validateCsrfTokens(except: [
+            'webhooks/chargily',
+            'chargilypay/webhook',
+        ]);
     })
     // ->withExceptions(function (Exceptions $exceptions): void {
     //     $exceptions->render(function (ModelNotFoundException $e, Request $request) {
@@ -83,9 +97,7 @@ return Application::configure(basePath: dirname(__DIR__))
     //         return $response;
     //     });
     // })->create();
-    
 
     ->withExceptions(function (Exceptions $exceptions): void {
         //
     })->create();
-    

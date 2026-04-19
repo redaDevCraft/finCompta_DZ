@@ -7,14 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Str;
 
 class Invoice extends Model
 {
     use SoftDeletes;
 
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -53,26 +54,26 @@ class Invoice extends Model
     protected static function boot(): void
     {
         parent::boot();
-    
+
         static::addGlobalScope('company', function (Builder $builder) {
             if (app()->has('currentCompany')) {
                 $builder->where(
-                    $builder->getModel()->getTable() . '.company_id',
+                    $builder->getModel()->getTable().'.company_id',
                     app('currentCompany')->id
                 );
             }
         });
-    
+
         static::updating(function (Invoice $invoice) {
             if (! $invoice->isImmutable()) {
                 return;
             }
-    
+
             $allowedAfterIssuance = ['status', 'pdf_path', 'journal_entry_id'];
-    
+
             $dirtyKeys = array_keys($invoice->getDirty());
             $forbiddenKeys = array_diff($dirtyKeys, $allowedAfterIssuance);
-    
+
             if (! empty($forbiddenKeys)) {
                 throw new \RuntimeException(
                     'Facture émise — modification interdite. Créez un avoir pour corriger.'
@@ -130,13 +131,4 @@ class Invoice extends Model
     {
         return in_array($this->status, ['issued', 'partially_paid', 'paid', 'voided', 'replaced'], true);
     }
-    
-    protected static function booted(): void
-{
-    static::addGlobalScope('company', function (Builder $builder) {
-        if (app()->has('currentCompany')) {
-            $builder->where($builder->getModel()->getTable() . '.company_id', app('currentCompany')->id);
-        }
-    });
-}
 }

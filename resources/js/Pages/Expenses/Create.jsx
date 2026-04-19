@@ -7,21 +7,29 @@ function FieldError({ message }) {
     return <p className="mt-1 text-sm text-rose-600">{message}</p>;
 }
 
-export default function Create({ contacts = [], expenseAccounts = [], taxRates = [] }) {
+export default function Create({
+    contacts = [],
+    accounts = [],
+    expenseAccounts = [],
+    taxRates = [],
+    prefill = {},
+}) {
+    const accountOptions = accounts.length > 0 ? accounts : expenseAccounts;
     const { data, setData, post, processing, errors } = useForm({
-        contact_id: '',
-        expense_date: new Date().toISOString().slice(0, 10),
-        reference: '',
-        description: '',
-        expense_account_id: '',
-        tax_rate_id: '',
-        total_ht: '',
-        total_vat: '',
-        total_ttc: '',
-        currency: 'DZD',
-        payment_method: 'bank',
+        contact_id: prefill.contact_id || '',
+        expense_date: prefill.expense_date || new Date().toISOString().slice(0, 10),
+        reference: prefill.reference || '',
+        description: prefill.vendor_name ? `Fournisseur: ${prefill.vendor_name}` : '',
+        expense_account_id: prefill.expense_account_id || '',
+        tax_rate_id: prefill.tax_rate_id || '',
+        total_ht: prefill.total_ht ?? '',
+        total_vat: prefill.total_vat ?? '',
+        total_ttc: prefill.total_ttc ?? '',
+        currency: prefill.currency || 'DZD',
+        payment_method: prefill.payment_method || 'bank',
         status: 'draft',
         notes: '',
+        source_document_id: prefill.source_document_id || '',
     });
 
     const submit = (e) => {
@@ -34,6 +42,13 @@ export default function Create({ contacts = [], expenseAccounts = [], taxRates =
             <Head title="Nouvelle dépense" />
 
             <div className="space-y-6">
+                {data.source_document_id && (
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                        Les champs ont été pré-remplis à partir d'un document OCR.
+                        Vérifiez chaque valeur avant d'enregistrer.
+                    </div>
+                )}
+
                 <div className="flex items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-semibold text-slate-900">
@@ -153,7 +168,7 @@ export default function Create({ contacts = [], expenseAccounts = [], taxRates =
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                                 >
                                     <option value="">Sélectionner un compte</option>
-                                    {expenseAccounts.map((account) => (
+                                    {accountOptions.map((account) => (
                                         <option key={account.id} value={account.id}>
                                             {account.code} — {account.label}
                                         </option>

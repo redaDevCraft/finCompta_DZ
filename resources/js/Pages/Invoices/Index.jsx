@@ -1,8 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Badge from '@/Components/UI/Badge';
-import Alert from '@/Components/UI/Alert';
 
 const formatCurrency = (value) =>
     new Intl.NumberFormat('fr-DZ', {
@@ -21,19 +20,21 @@ const formatDate = (value) => {
 };
 
 export default function Index({ invoices, filters = {} }) {
+    const { flash } = usePage().props;
     const [search, setSearch] = useState(filters.search ?? '');
     const [status, setStatus] = useState(filters.status ?? '');
     const [dateFrom, setDateFrom] = useState(filters.date_from ?? '');
     const [dateTo, setDateTo] = useState(filters.date_to ?? '');
 
-    const applyFilters = () => {
+    const applyFilters = (e) => {
+        e?.preventDefault?.();
         router.get(
             '/invoices',
             {
-                search,
-                status,
-                date_from: dateFrom,
-                date_to: dateTo,
+                search: search || undefined,
+                status: status || undefined,
+                date_from: dateFrom || undefined,
+                date_to: dateTo || undefined,
             },
             {
                 preserveState: true,
@@ -49,15 +50,21 @@ export default function Index({ invoices, filters = {} }) {
         setDateFrom('');
         setDateTo('');
 
-        router.get(
-            '/invoices',
-            {},
-            {
-                preserveState: true,
-                preserveScroll: true,
-                replace: true,
-            }
-        );
+        router.get('/invoices', {}, {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        });
+    };
+
+    const issueInvoice = (invoice) => {
+        if (!confirm(`Émettre la facture ${invoice.invoice_number || '(brouillon)'} ? Elle sera numérotée et non-modifiable.`)) return;
+        router.post(`/invoices/${invoice.id}/issue`, {}, { preserveScroll: true });
+    };
+
+    const voidInvoice = (invoice) => {
+        if (!confirm(`Annuler la facture ${invoice.invoice_number || ''} ?`)) return;
+        router.post(`/invoices/${invoice.id}/void`, {}, { preserveScroll: true });
     };
 
     return (
@@ -81,7 +88,18 @@ export default function Index({ invoices, filters = {} }) {
                     </Link>
                 </div>
 
-                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                {flash?.success && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                        {flash.success}
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                        {flash.error}
+                    </div>
+                )}
+
+                <form onSubmit={applyFilters} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         <div>
                             <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -140,10 +158,9 @@ export default function Index({ invoices, filters = {} }) {
                         </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-3">
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
                         <button
-                            type="button"
-                            onClick={applyFilters}
+                            type="submit"
                             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
                         >
                             Filtrer
@@ -156,8 +173,11 @@ export default function Index({ invoices, filters = {} }) {
                         >
                             Réinitialiser
                         </button>
+                        <span className="ml-auto text-xs text-gray-500">
+                            {invoices?.total ?? invoices?.data?.length ?? 0} résultat(s)
+                        </span>
                     </div>
-                </div>
+                </form>
 
                 <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                     <div className="overflow-x-auto">
@@ -235,34 +255,34 @@ export default function Index({ invoices, filters = {} }) {
                                                     </Link>
 
                                                     {invoice.status === 'draft' && (
-                                                        <Link
-                                                            href={`/invoices/${invoice.id}/issue`}
-                                                            method="post"
-                                                            as="button"
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => issueInvoice(invoice)}
                                                             className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
                                                         >
                                                             Émettre
-                                                        </Link>
+                                                        </button>
                                                     )}
 
-                                                    {invoice.status !== 'draft' && (
-                                                        <Link
+                                                    {invoice.status !== 'draft' && invoice.pdf_path && (
+                                                        <a
                                                             href={`/invoices/${invoice.id}/pdf`}
+                                                            target="_blank"
+                                                            rel="noreferrer"
                                                             className="rounded-md border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
                                                         >
                                                             PDF
-                                                        </Link>
+                                                        </a>
                                                     )}
 
-                                                    {invoice.status === 'issued' && (
-                                                        <Link
-                                                            href={`/invoices/${invoice.id}/void`}
-                                                            method="post"
-                                                            as="button"
+                                                    {(invoice.status === 'issued' || invoice.status === 'partially_paid') && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => voidInvoice(invoice)}
                                                             className="rounded-md border border-red-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
                                                         >
                                                             Annuler
-                                                        </Link>
+                                                        </button>
                                                     )}
                                                 </div>
                                             </td>

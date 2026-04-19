@@ -6,6 +6,7 @@ use Database\Seeders\CompanyBootstrapSeeder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
@@ -14,8 +15,10 @@ class Company extends Model
     use SoftDeletes;
 
     protected $primaryKey = 'id';
-    protected $keyType    = 'string';
-    public    $incrementing = false;
+
+    protected $keyType = 'string';
+
+    public $incrementing = false;
 
     protected $fillable = [
         'raison_sociale',
@@ -34,7 +37,7 @@ class Company extends Model
     ];
 
     protected $casts = [
-        'vat_registered'  => 'boolean',
+        'vat_registered' => 'boolean',
         'fiscal_year_end' => 'integer',
     ];
 
@@ -54,7 +57,19 @@ class Company extends Model
     {
         return $this->belongsToMany(User::class, 'company_users')
             ->withPivot('role', 'granted_at', 'revoked_at');
-           
+    }
+
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class)->orderBy(
+            (new Subscription)->getQualifiedCreatedAtColumn(),
+            'desc',
+        );
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
     }
 
     public function contacts(): HasMany
@@ -82,7 +97,7 @@ class Company extends Model
         return $this->hasMany(TaxRate::class);
     }
 
-public function documents(): HasMany
+    public function documents(): HasMany
     {
         return $this->hasMany(Document::class);
     }

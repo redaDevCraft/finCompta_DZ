@@ -4,26 +4,102 @@ import {
     ArrowLeftRight,
     BarChart2,
     BookOpen,
+    CreditCard,
+    ClipboardCheck,
+    Clock,
+    FileBarChart,
     FileText,
+    Landmark,
+    Layers,
     LayoutDashboard,
     LogOut,
     Menu,
+    NotebookPen,
     Receipt,
+    Scale,
     Settings,
+    Shield,
+    Truck,
     Upload,
+    User,
+    Users,
     X,
 } from 'lucide-react';
 
-const navigation = [
-    { href: '/dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
-    { href: '/invoices', label: 'Factures', icon: FileText },
-    { href: '/expenses', label: 'Dépenses', icon: Receipt },
-    { href: '/documents/upload', label: 'Documents', icon: Upload },
-    { href: '/bank/reconcile', label: 'Rapprochement', icon: ArrowLeftRight },
-    { href: '/ledger/journal', label: 'Journal', icon: BookOpen },
-    { href: '/reports/vat', label: 'Rapports TVA', icon: BarChart2 },
-    { href: '/settings/company', label: 'Paramètres', icon: Settings },
+const baseNavGroups = [
+    {
+        label: null,
+        items: [
+            { href: '/dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
+        ],
+    },
+    {
+        label: 'Ventes & achats',
+        items: [
+            { href: '/invoices', label: 'Factures', icon: FileText },
+            { href: '/expenses', label: 'Dépenses', icon: Receipt },
+            { href: '/clients', label: 'Clients', icon: User },
+            { href: '/suppliers', label: 'Fournisseurs', icon: Truck },
+        ],
+    },
+    {
+        label: 'Opérations',
+        items: [
+            { href: '/documents', label: 'Documents', icon: Upload },
+            { href: '/bank/reconcile', label: 'Rapprochement', icon: ArrowLeftRight },
+        ],
+    },
+    {
+        label: 'Comptabilité',
+        items: [
+            { href: '/ledger/entries/create', label: 'Saisie d’écriture', icon: NotebookPen },
+            { href: '/ledger/journal', label: 'Journal', icon: BookOpen },
+            { href: '/ledger/account', label: 'Grand Livre', icon: Layers },
+            { href: '/ledger/lettering', label: 'Lettrage', icon: ClipboardCheck },
+            { href: '/ledger/trial-balance', label: 'Balance', icon: BarChart2 },
+        ],
+    },
+    {
+        label: 'États & rapports',
+        items: [
+            { href: '/reports/bilan', label: 'Bilan', icon: Scale },
+            { href: '/reports/aged-receivables', label: 'Balance âgée clients', icon: Clock },
+            { href: '/reports/aged-payables', label: 'Balance âgée fournisseurs', icon: Clock },
+            { href: '/reports/vat', label: 'Rapports TVA', icon: FileBarChart },
+        ],
+    },
+    {
+        label: 'Paramétrage',
+        items: [
+            { href: '/contacts', label: 'Tiers', icon: Users },
+            { href: '/settings/accounts', label: 'Plan comptable', icon: Landmark },
+            { href: '/settings/journals', label: 'Journaux', icon: BookOpen },
+            { href: '/settings/periods', label: 'Périodes fiscales', icon: Clock },
+            { href: '/settings/bank-accounts', label: 'Comptes bancaires', icon: Landmark },
+            { href: '/settings/company', label: 'Société', icon: Settings },
+        ],
+    },
+    {
+        label: 'Abonnement',
+        items: [
+            { href: '/billing', label: 'Facturation SaaS', icon: CreditCard },
+        ],
+    },
 ];
+
+function buildNavGroups(roles) {
+    const groups = [...baseNavGroups];
+    if ((roles ?? []).includes('admin')) {
+        groups.push({
+            label: 'Administration',
+            items: [
+                { href: '/admin', label: 'Console admin', icon: Shield },
+                { href: '/admin/payments', label: 'Paiements (validation)', icon: ClipboardCheck },
+            ],
+        });
+    }
+    return groups;
+}
 
 function SidebarLink({ href, label, icon: Icon, active, onClick }) {
     return (
@@ -31,16 +107,21 @@ function SidebarLink({ href, label, icon: Icon, active, onClick }) {
             href={href}
             onClick={onClick}
             className={[
-                'flex items-center gap-3 rounded-r-lg px-4 py-3 text-sm font-medium transition',
+                'flex items-center gap-3 rounded-r-lg px-4 py-2 text-sm font-medium transition',
                 active
                     ? 'border-l-4 border-indigo-600 bg-indigo-50 text-indigo-700'
                     : 'border-l-4 border-transparent text-gray-700 hover:bg-gray-50 hover:text-gray-900',
             ].join(' ')}
         >
-            <Icon className="h-5 w-5 shrink-0" />
-            <span>{label}</span>
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="truncate">{label}</span>
         </Link>
     );
+}
+
+function isActiveLink(url, href) {
+    if (href === '/dashboard') return url === '/' || url.startsWith('/dashboard');
+    return url === href || url.startsWith(href + '/') || url.startsWith(href + '?');
 }
 
 export default function AuthenticatedLayout({ header, children }) {
@@ -49,26 +130,50 @@ export default function AuthenticatedLayout({ header, children }) {
 
     const company = props.currentCompany ?? null;
     const user = props.auth?.user ?? null;
+    const roles = props.auth?.roles ?? [];
+    const subscription = props.subscription ?? null;
+    const flash = props.flash ?? {};
+    const navGroups = buildNavGroups(roles);
 
     const sidebar = (
         <div className="flex h-full flex-col bg-white">
-            <div className="border-b border-gray-200 px-5 py-4">
+            <div className="shrink-0 border-b border-gray-200 px-5 py-4">
                 <div className="text-lg font-bold text-gray-900">FinCompta DZ</div>
                 <div className="mt-1 text-xs text-gray-500">Comptabilité PME Algérie</div>
             </div>
 
-            <nav className="flex-1 space-y-1 px-2 py-4">
-                {navigation.map((item) => (
-                    <SidebarLink
-                        key={item.href}
-                        href={item.href}
-                        label={item.label}
-                        icon={item.icon}
-                        active={url.startsWith(item.href)}
-                        onClick={() => setMobileOpen(false)}
-                    />
+            <nav className="flex-1 overflow-y-auto px-2 py-3">
+                {navGroups.map((group, idx) => (
+                    <div key={idx} className={idx > 0 ? 'mt-4' : ''}>
+                        {group.label && (
+                            <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                                {group.label}
+                            </div>
+                        )}
+                        <div className="space-y-0.5">
+                            {group.items.map((item) => (
+                                <SidebarLink
+                                    key={item.href}
+                                    href={item.href}
+                                    label={item.label}
+                                    icon={item.icon}
+                                    active={isActiveLink(url, item.href)}
+                                    onClick={() => setMobileOpen(false)}
+                                />
+                            ))}
+                        </div>
+                    </div>
                 ))}
             </nav>
+
+            {company && (
+                <div className="shrink-0 border-t border-gray-200 bg-gray-50 px-5 py-3 text-xs">
+                    <div className="font-semibold text-gray-900 truncate">
+                        {company.raison_sociale}
+                    </div>
+                    <div className="mt-0.5 text-gray-500">Exercice en cours</div>
+                </div>
+            )}
         </div>
     );
 
@@ -83,11 +188,11 @@ export default function AuthenticatedLayout({ header, children }) {
 
             <aside
                 className={[
-                    'fixed inset-y-0 left-0 z-50 w-72 transform border-r border-gray-200 bg-white transition-transform duration-200 ease-in-out lg:translate-x-0',
+                    'fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col border-r border-gray-200 bg-white transition-transform duration-200 ease-in-out lg:translate-x-0',
                     mobileOpen ? 'translate-x-0' : '-translate-x-full',
                 ].join(' ')}
             >
-                <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 lg:hidden">
+                <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-5 py-4 lg:hidden">
                     <span className="text-base font-semibold text-gray-900">Navigation</span>
                     <button
                         type="button"
@@ -98,7 +203,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     </button>
                 </div>
 
-                {sidebar}
+                <div className="min-h-0 flex-1">{sidebar}</div>
             </aside>
 
             <div className="lg:pl-72">
@@ -143,6 +248,28 @@ export default function AuthenticatedLayout({ header, children }) {
                         </div>
                     </div>
                 </header>
+
+                {subscription?.status === 'trial' && subscription?.days_remaining <= 3 && (
+                    <div className="bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:px-6 lg:px-8">
+                        Essai gratuit — il vous reste <strong>{subscription.days_remaining}</strong> jour(s).{' '}
+                        <Link href="/billing/checkout" className="font-semibold underline hover:text-amber-900">Choisir un plan</Link>
+                    </div>
+                )}
+                {subscription?.status === 'past_due' && (
+                    <div className="bg-rose-50 px-4 py-2 text-sm text-rose-800 sm:px-6 lg:px-8">
+                        Votre abonnement est en retard de paiement.{' '}
+                        <Link href="/billing" className="font-semibold underline hover:text-rose-900">Régulariser maintenant</Link>
+                    </div>
+                )}
+                {flash.success && (
+                    <div className="bg-emerald-50 px-4 py-2 text-sm text-emerald-800 sm:px-6 lg:px-8">{flash.success}</div>
+                )}
+                {flash.warning && (
+                    <div className="bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:px-6 lg:px-8">{flash.warning}</div>
+                )}
+                {flash.error && (
+                    <div className="bg-rose-50 px-4 py-2 text-sm text-rose-800 sm:px-6 lg:px-8">{flash.error}</div>
+                )}
 
                 <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
             </div>

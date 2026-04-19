@@ -2,14 +2,17 @@
 
 namespace App\Models;
 
-use InvalidArgumentException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 class JournalLine extends Model
 {
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -18,6 +21,7 @@ class JournalLine extends Model
         'debit',
         'credit',
         'contact_id',
+        'lettering_id',
         'description',
         'sort_order',
     ];
@@ -30,6 +34,10 @@ class JournalLine extends Model
     protected static function booted(): void
     {
         static::creating(function (JournalLine $line) {
+            if (empty($line->id)) {
+                $line->id = (string) Str::uuid();
+            }
+
             $debit = (float) ($line->debit ?? 0);
             $credit = (float) ($line->credit ?? 0);
 
@@ -56,5 +64,10 @@ class JournalLine extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'contact_id');
+    }
+
+    public function lettering(): BelongsTo
+    {
+        return $this->belongsTo(Lettering::class, 'lettering_id');
     }
 }

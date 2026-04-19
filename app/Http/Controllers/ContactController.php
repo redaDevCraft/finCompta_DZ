@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Contact;
+use App\Models\Expense;
+use App\Models\Invoice;
+use App\Models\JournalLine;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -32,6 +35,46 @@ class ContactController extends Controller
             'filters' => [
                 'type' => $type ?: null,
             ],
+        ]);
+    }
+
+    public function show(Contact $contact): Response
+    {
+        $this->assertOwnership($contact);
+
+        $invoices = Invoice::query()
+            ->where('company_id', $contact->company_id)
+            ->where('contact_id', $contact->id)
+            ->orderByDesc('issue_date')
+            ->limit(25)
+            ->get([
+                'id', 'invoice_number', 'issue_date', 'due_date',
+                'total_ttc', 'status', 'document_type', 'currency',
+            ]);
+
+        $expenses = Expense::query()
+            ->where('company_id', $contact->company_id)
+            ->where('contact_id', $contact->id)
+            ->orderByDesc('expense_date')
+            ->limit(25)
+            ->get([
+                'id', 'reference', 'expense_date', 'due_date',
+                'total_ttc', 'status', 'description',
+            ]);
+
+        $prefix = match ($contact->type) {
+            'supplier' => '401',
+            'both' => null,
+            default => '411',
+        };
+
+        $balances = $this->partyBalances($contact, $prefix);
+
+        return Inertia::render('Contacts/Show', [
+            'contact' => $contact,
+            'invoices' => $invoices,
+            'expenses' => $expenses,
+            'balances' => $balances,
         ]);
     }
 
@@ -89,6 +132,42 @@ class ContactController extends Controller
             $contact->company_id === app('currentCompany')->id,
             404
         );
+    }
+
+    /**
+     * Aggregate open receivable / payable balance for this contact.
+     * If $prefix is null, returns both 411 (client) and 401 (supplier).
+     *
+     * @return array<string, array{open: float, debit: float, credit: float}>
+     */
+    protected function partyBalances(Contact $contact, ?string $prefix): array
+    {
+        $prefixes = $prefix ? [$prefix] : ['411', '401'];
+
+        $out = [];
+
+        foreach ($prefixes as $p) {
+            $row = JournalLine::query()
+                ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
+                ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
+                ->where('journal_entries.company_id', $contact->company_id)
+                ->where('journal_entries.status', 'posted')
+                ->where('journal_lines.contact_id', $contact->id)
+                ->where('accounts.code', 'like', $p.'%')
+                ->selectRaw('COALESCE(SUM(journal_lines.debit),0) as debit, COALESCE(SUM(journal_lines.credit),0) as credit')
+                ->first();
+
+            $debit = (float) ($row->debit ?? 0);
+            $credit = (float) ($row->credit ?? 0);
+
+            $out[$p] = [
+                'debit' => round($debit, 2),
+                'credit' => round($credit, 2),
+                'open' => round($debit - $credit, 2),
+            ];
+        }
+
+        return $out;
     }
 
     protected function rules(): array

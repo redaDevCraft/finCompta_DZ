@@ -2,16 +2,21 @@
 
 namespace App\Models;
 
+use App\Services\OcrTextNormalizer;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 
 class Document extends Model
 {
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
@@ -24,6 +29,8 @@ class Document extends Model
         'source',
         'ocr_status',
         'ocr_raw_text',
+        'ocr_parsed_hints',
+        'ocr_error',
         'retention_until',
         'deleted_at',
         'uploaded_by',
@@ -33,7 +40,28 @@ class Document extends Model
         'retention_until' => 'date',
         'file_size_bytes' => 'integer',
         'deleted_at' => 'datetime',
+        'ocr_parsed_hints' => 'array',
     ];
+
+    protected function ocrRawText(): Attribute
+    {
+        return Attribute::make(
+            get: function (?string $value) {
+                if ($value === null || $value === '') {
+                    return $value;
+                }
+
+                return OcrTextNormalizer::scrubInvalidUtf8($value);
+            },
+            set: function (?string $value) {
+                if ($value === null || $value === '') {
+                    return $value;
+                }
+
+                return OcrTextNormalizer::scrubInvalidUtf8($value);
+            },
+        );
+    }
 
     public function company(): BelongsTo
     {
@@ -48,10 +76,10 @@ class Document extends Model
 
     public function isDeletable(): bool
     {
-        if (!$this->retention_until) {
+        if (! $this->retention_until) {
             return true;
         }
-    
+
         return Carbon::parse($this->retention_until)->isPast();
     }
 
@@ -64,24 +92,32 @@ class Document extends Model
     {
         return $this->ocr_status === 'done';
     }
+
     protected static function boot(): void
     {
         parent::boot();
 
+        static::creating(function (Document $doc) {
+            if (empty($doc->id)) {
+                $doc->id = (string) Str::uuid();
+            }
+        });
+
         static::deleting(function (Document $doc) {
             if ($doc->retention_until && $doc->retention_until->isFuture()) {
                 throw new \RuntimeException(
-                    'Document en période de rétention légale — suppression interdite jusqu\'au ' . $doc->retention_until->format('d/m/Y')
+                    'Document en période de rétention légale — suppression interdite jusqu\'au '.$doc->retention_until->format('d/m/Y')
                 );
             }
         });
     }
+
     protected static function booted(): void
-{
-    static::addGlobalScope('company', function (Builder $builder) {
-        if (app()->has('currentCompany')) {
-            $builder->where($builder->getModel()->getTable() . '.company_id', app('currentCompany')->id);
-        }
-    });
-}
+    {
+        static::addGlobalScope('company', function (Builder $builder) {
+            if (app()->has('currentCompany')) {
+                $builder->where($builder->getModel()->getTable().'.company_id', app('currentCompany')->id);
+            }
+        });
+    }
 }

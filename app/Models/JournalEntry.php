@@ -6,16 +6,20 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class JournalEntry extends Model
 {
     protected $primaryKey = 'id';
+
     protected $keyType = 'string';
+
     public $incrementing = false;
 
     protected $fillable = [
         'company_id',
         'period_id',
+        'journal_id',
         'entry_date',
         'journal_code',
         'reference',
@@ -37,14 +41,20 @@ class JournalEntry extends Model
     {
         return $this->belongsTo(Company::class);
     }
+
     public function bankTransaction()
-{
-    return $this->hasOne(BankTransaction::class, 'journal_entry_id');
-}
+    {
+        return $this->hasOne(BankTransaction::class, 'journal_entry_id');
+    }
 
     public function period(): BelongsTo
     {
         return $this->belongsTo(FiscalPeriod::class, 'period_id');
+    }
+
+    public function journal(): BelongsTo
+    {
+        return $this->belongsTo(Journal::class, 'journal_id');
     }
 
     public function lines(): HasMany
@@ -66,18 +76,26 @@ class JournalEntry extends Model
     {
         $this->loadMissing('lines');
 
-        return (float) $this->lines->sum('debit') === (float) $this->lines->sum('credit');
+        $debit = round((float) $this->lines->sum('debit'), 2);
+        $credit = round((float) $this->lines->sum('credit'), 2);
+
+        return abs($debit - $credit) < 0.01;
     }
 
     public function isPostable(): bool
     {
         return $this->status === 'draft' && $this->isBalanced();
     }
+
     protected static function boot(): void
     {
         parent::boot();
 
         static::creating(function (JournalEntry $entry) {
+            if (empty($entry->id)) {
+                $entry->id = (string) Str::uuid();
+            }
+
             $period = FiscalPeriod::find($entry->period_id);
 
             if ($period && $period->isLocked()) {
@@ -87,12 +105,13 @@ class JournalEntry extends Model
             }
         });
     }
+
     protected static function booted(): void
-{
-    static::addGlobalScope('company', function (Builder $builder) {
-        if (app()->has('currentCompany')) {
-            $builder->where($builder->getModel()->getTable() . '.company_id', app('currentCompany')->id);
-        }
-    });
-}
+    {
+        static::addGlobalScope('company', function (Builder $builder) {
+            if (app()->has('currentCompany')) {
+                $builder->where($builder->getModel()->getTable().'.company_id', app('currentCompany')->id);
+            }
+        });
+    }
 }

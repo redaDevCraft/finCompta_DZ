@@ -7,27 +7,54 @@ use App\Models\Account;
 use App\Models\Contact;
 use App\Models\Invoice;
 use App\Models\TaxRate;
+use App\Models\User;
 use App\Services\InvoiceService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class InvoiceController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $company = app('currentCompany');
+
+        $search = trim((string) $request->input('search', ''));
+        $status = $request->input('status');
+        $dateFrom = $request->input('date_from');
+        $dateTo = $request->input('date_to');
 
         $invoices = Invoice::query()
             ->where('company_id', $company->id)
             ->with(['contact', 'lines'])
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->when($dateFrom, fn ($q) => $q->whereDate('issue_date', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate('issue_date', '<=', $dateTo))
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->where('invoice_number', 'ilike', "%{$search}%")
+                        ->orWhere('notes', 'ilike', "%{$search}%")
+                        ->orWhereHas('contact', function ($c) use ($search) {
+                            $c->where('display_name', 'ilike', "%{$search}%")
+                                ->orWhere('raison_sociale', 'ilike', "%{$search}%");
+                        });
+                });
+            })
             ->orderByDesc('issue_date')
+            ->orderByDesc('created_at')
             ->paginate(20)
             ->withQueryString();
 
         return Inertia::render('Invoices/Index', [
             'invoices' => $invoices,
+            'filters' => [
+                'search' => $search,
+                'status' => $status,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+            ],
         ]);
     }
 
@@ -111,6 +138,45 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function edit(Invoice $invoice): Response
+    {
+        $this->authorizeInvoice($invoice);
+
+        abort_if(! $invoice->isEditable(), 422, 'Facture déjà émise, non modifiable');
+
+        $company = app('currentCompany');
+
+        $invoice->load(['contact', 'lines', 'vatBuckets']);
+
+        $contacts = Contact::query()
+            ->where('company_id', $company->id)
+            ->where('is_active', true)
+            ->orderBy('display_name')
+            ->get();
+
+        $taxRates = TaxRate::query()
+            ->where(function ($query) use ($company) {
+                $query->where('company_id', $company->id)
+                    ->orWhereNull('company_id');
+            })
+            ->where('is_active', true)
+            ->orderBy('rate_percent')
+            ->get();
+
+        $accounts = Account::query()
+            ->where('company_id', $company->id)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get();
+
+        return Inertia::render('Invoices/Edit', [
+            'invoice' => $invoice,
+            'contacts' => $contacts,
+            'taxRates' => $taxRates,
+            'accounts' => $accounts,
+        ]);
+    }
+
     public function update(StoreInvoiceRequest $request, Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $this->authorizeInvoice($invoice);
@@ -149,17 +215,17 @@ class InvoiceController extends Controller
             ->with('success', 'Facture émise avec succès');
     }
 
-    public function void(Invoice $invoice): RedirectResponse
+    public function void(Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $this->authorizeInvoice($invoice);
 
-        abort_if($invoice->status === 'draft', 422, 'Un brouillon ne peut être annulé, supprimez-le');
+        /** @var User|null $user */
+        $user = request()->user();
+        abort_if(! $user, 403, 'Utilisateur non authentifié');
 
-        $invoice->update([
-            'status' => 'voided',
-        ]);
+        $service->void($invoice, app('currentCompany'), $user);
 
-        return back()->with('success', 'Facture annulée');
+        return back()->with('success', 'Facture annulée et écriture extournée');
     }
 
     public function pdf(Invoice $invoice)
@@ -171,25 +237,25 @@ class InvoiceController extends Controller
 
         return Storage::download(
             $invoice->pdf_path,
-            ($invoice->invoice_number ?? 'facture') . '.pdf'
+            ($invoice->invoice_number ?? 'facture').'.pdf'
         );
     }
 
     public function credit(Invoice $invoice, InvoiceService $service): RedirectResponse
     {
         $this->authorizeInvoice($invoice);
-    
-        /** @var \App\Models\User|null $user */
+
+        /** @var User|null $user */
         $user = request()->user();
-    
+
         abort_if(! $user, 403, 'Utilisateur non authentifié');
-    
+
         $creditNote = $service->createCreditNote(
             $invoice,
             app('currentCompany'),
             $user
         );
-    
+
         return redirect()->route('invoices.show', $creditNote);
     }
 
