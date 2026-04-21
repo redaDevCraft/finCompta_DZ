@@ -1,6 +1,7 @@
 import AdminLayout from '@/Layouts/AdminLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Check, Pencil, Plus, Power, Trash2 } from 'lucide-react';
+import { useNotification } from '@/Context/NotificationContext';
 
 function fmtDzd(n) {
     return (Number(n) || 0).toLocaleString('fr-DZ');
@@ -9,6 +10,7 @@ function fmtDzd(n) {
 export default function PlansIndex({ plans }) {
     const { props } = usePage();
     const errors = props.errors ?? {};
+    const { confirm } = useNotification();
 
     function toggle(plan) {
         router.post(
@@ -18,8 +20,13 @@ export default function PlansIndex({ plans }) {
         );
     }
 
-    function destroy(plan) {
-        if (!confirm(`Supprimer le plan « ${plan.name} » ?`)) return;
+    async function destroy(plan) {
+        const ok = await confirm({
+            title: 'Supprimer le plan',
+            message: `Supprimer le plan « ${plan.name} » ?`,
+            confirmLabel: 'Supprimer',
+        });
+        if (!ok) return;
         router.delete(route('admin.plans.destroy', plan.id), {
             preserveScroll: true,
         });

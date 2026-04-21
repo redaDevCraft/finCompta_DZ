@@ -2,6 +2,7 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import { Head, Link, router } from '@inertiajs/react';
 import { useState } from 'react';
 import { Search, XCircle, RotateCcw, Timer } from 'lucide-react';
+import { useNotification } from '@/Context/NotificationContext';
 
 const STATUS_TABS = [
     { key: '', label: 'Tous' },
@@ -21,6 +22,7 @@ const STATUS_STYLES = {
 
 export default function SubscriptionsIndex({ subscriptions, filters = {}, counts = {} }) {
     const [search, setSearch] = useState(filters.search || '');
+    const { confirm, prompt, warning } = useNotification();
 
     function apply(params) {
         router.get(
@@ -30,11 +32,16 @@ export default function SubscriptionsIndex({ subscriptions, filters = {}, counts
         );
     }
 
-    function cancel(sub, immediate) {
+    async function cancel(sub, immediate) {
         const msg = immediate
             ? 'Résilier IMMÉDIATEMENT cet abonnement ?'
             : 'Planifier la résiliation à la fin de la période ?';
-        if (!confirm(msg)) return;
+        const ok = await confirm({
+            title: 'Résiliation',
+            message: msg,
+            confirmLabel: 'Confirmer',
+        });
+        if (!ok) return;
         router.post(
             route('admin.subscriptions.cancel', sub.id),
             { immediate },
@@ -42,8 +49,13 @@ export default function SubscriptionsIndex({ subscriptions, filters = {}, counts
         );
     }
 
-    function reactivate(sub) {
-        if (!confirm('Réactiver cet abonnement ?')) return;
+    async function reactivate(sub) {
+        const ok = await confirm({
+            title: 'Réactivation',
+            message: 'Réactiver cet abonnement ?',
+            confirmLabel: 'Réactiver',
+        });
+        if (!ok) return;
         router.post(
             route('admin.subscriptions.reactivate', sub.id),
             {},
@@ -51,9 +63,19 @@ export default function SubscriptionsIndex({ subscriptions, filters = {}, counts
         );
     }
 
-    function extend(sub) {
-        const days = prompt('Prolonger cet abonnement de combien de jours ?', '30');
-        if (!days || Number(days) < 1) return;
+    async function extend(sub) {
+        const days = await prompt({
+            title: 'Prolonger abonnement',
+            message: 'Prolonger cet abonnement de combien de jours ?',
+            placeholder: 'Ex: 30',
+            defaultValue: '30',
+            confirmLabel: 'Prolonger',
+        });
+        if (!days) return;
+        if (Number(days) < 1) {
+            warning('Le nombre de jours doit être supérieur à 0.');
+            return;
+        }
         router.post(
             route('admin.subscriptions.extend', sub.id),
             { days: Number(days) },

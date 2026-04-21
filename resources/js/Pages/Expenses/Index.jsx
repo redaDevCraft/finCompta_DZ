@@ -1,6 +1,9 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import CursorPager from '@/Components/UI/CursorPager';
+import TableSkeleton from '@/Components/UI/TableSkeleton';
+import { useDebouncedFilters } from '@/Hooks/useDebouncedFilters';
+import { useNotification } from '@/Context/NotificationContext';
 
 function formatMoney(value, currency = 'DZD') {
     return new Intl.NumberFormat('fr-DZ', {
@@ -46,42 +49,23 @@ function statusBadge(status) {
 }
 
 export default function Index({ expenses, filters = {} }) {
-    const { flash } = usePage().props;
-    const [search, setSearch] = useState(filters.search ?? '');
-    const [status, setStatus] = useState(filters.status ?? '');
-    const [dateFrom, setDateFrom] = useState(filters.date_from ?? '');
-    const [dateTo, setDateTo] = useState(filters.date_to ?? '');
+    const { confirm } = useNotification();
 
-    const submitFilters = (e) => {
-        e.preventDefault();
-        router.get(
-            '/expenses',
-            {
-                search: search || undefined,
-                status: status || undefined,
-                date_from: dateFrom || undefined,
-                date_to: dateTo || undefined,
-            },
-            { preserveState: true, replace: true }
-        );
-    };
+    // Debounced partial reload (same contract as Invoices/Index).
+    const { values, setValue, loading, apply, reset } = useDebouncedFilters({
+        url: '/expenses',
+        only: ['expenses', 'filters'],
+        defaults: { search: '', status: '', date_from: '', date_to: '' },
+        initial: filters,
+    });
 
-    const resetFilters = () => {
-        setSearch('');
-        setStatus('');
-        setDateFrom('');
-        setDateTo('');
-        router.get('/expenses', {}, { preserveState: true, replace: true });
-    };
-
-    const confirmExpense = (expense) => {
-        if (
-            !confirm(
-                `Confirmer la dépense ${expense.reference || ''} et générer l’écriture comptable ?`
-            )
-        ) {
-            return;
-        }
+    const confirmExpense = async (expense) => {
+        const ok = await confirm({
+            title: 'Confirmer la dépense',
+            message: `Confirmer la dépense ${expense.reference || ''} et générer l’écriture comptable ?`,
+            confirmLabel: 'Confirmer',
+        });
+        if (!ok) return;
 
         router.post(
             `/expenses/${expense.id}/confirm`,
@@ -113,27 +97,22 @@ export default function Index({ expenses, filters = {} }) {
                     </Link>
                 </div>
 
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
-                {flash?.error && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        {flash.error}
-                    </div>
-                )}
-
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <form onSubmit={submitFilters} className="grid gap-4 md:grid-cols-5">
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            apply();
+                        }}
+                        className="grid gap-4 md:grid-cols-5"
+                    >
                         <div className="md:col-span-2">
                             <label className="mb-1 block text-sm font-medium text-slate-700">
                                 Recherche
                             </label>
                             <input
                                 type="text"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                value={values.search}
+                                onChange={(e) => setValue('search', e.target.value)}
                                 placeholder="Fournisseur, description, référence…"
                                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
                             />
@@ -144,8 +123,8 @@ export default function Index({ expenses, filters = {} }) {
                                 Statut
                             </label>
                             <select
-                                value={status}
-                                onChange={(e) => setStatus(e.target.value)}
+                                value={values.status}
+                                onChange={(e) => setValue('status', e.target.value)}
                                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
                             >
                                 <option value="">Tous</option>
@@ -162,8 +141,8 @@ export default function Index({ expenses, filters = {} }) {
                             </label>
                             <input
                                 type="date"
-                                value={dateFrom}
-                                onChange={(e) => setDateFrom(e.target.value)}
+                                value={values.date_from}
+                                onChange={(e) => setValue('date_from', e.target.value)}
                                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
                             />
                         </div>
@@ -174,28 +153,24 @@ export default function Index({ expenses, filters = {} }) {
                             </label>
                             <input
                                 type="date"
-                                value={dateTo}
-                                onChange={(e) => setDateTo(e.target.value)}
+                                value={values.date_to}
+                                onChange={(e) => setValue('date_to', e.target.value)}
                                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
                             />
                         </div>
 
                         <div className="flex items-end gap-2 md:col-span-5">
                             <button
-                                type="submit"
-                                className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
-                            >
-                                Filtrer
-                            </button>
-                            <button
                                 type="button"
-                                onClick={resetFilters}
+                                onClick={reset}
                                 className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                             >
                                 Réinitialiser
                             </button>
                             <span className="ml-auto text-xs text-slate-500">
-                                {expenses?.total ?? expenses?.data?.length ?? 0} résultat(s)
+                                {loading
+                                    ? 'Chargement…'
+                                    : `${expenses?.data?.length ?? 0} résultat(s) sur cette page`}
                             </span>
                         </div>
                     </form>
@@ -227,6 +202,9 @@ export default function Index({ expenses, filters = {} }) {
                                 </tr>
                             </thead>
 
+                            {loading ? (
+                                <TableSkeleton rows={8} columns={6} />
+                            ) : (
                             <tbody className="divide-y divide-slate-100 bg-white">
                                 {expenses?.data?.length ? (
                                     expenses.data.map((expense) => (
@@ -286,31 +264,11 @@ export default function Index({ expenses, filters = {} }) {
                                     </tr>
                                 )}
                             </tbody>
+                            )}
                         </table>
                     </div>
 
-                    {expenses?.links?.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-4">
-                            {expenses.links.map((link, index) => (
-                                <button
-                                    key={index}
-                                    type="button"
-                                    disabled={!link.url}
-                                    onClick={() => link.url && router.visit(link.url)}
-                                    className={`rounded-lg px-3 py-1.5 text-sm ${
-                                        link.active
-                                            ? 'bg-indigo-600 text-white'
-                                            : 'border border-slate-300 bg-white text-slate-700'
-                                    } ${
-                                        !link.url
-                                            ? 'cursor-not-allowed opacity-50'
-                                            : 'hover:bg-slate-50'
-                                    }`}
-                                    dangerouslySetInnerHTML={{ __html: link.label }}
-                                />
-                            ))}
-                        </div>
-                    )}
+                    <CursorPager paginator={expenses} only={['expenses', 'filters']} />
                 </div>
             </div>
         </AuthenticatedLayout>

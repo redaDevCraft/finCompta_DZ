@@ -40,12 +40,21 @@ export default function Bilan({
                             du plan comptable SCF.
                         </p>
                     </div>
-                    <a
-                        href={route('reports.bilan.pdf', { as_of_date: asOfDate })}
-                        className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                    >
-                        Exporter PDF
-                    </a>
+                    <div className="flex items-center gap-3">
+                        <a
+                            href={route('reports.runs.index')}
+                            className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                            Mes exports
+                        </a>
+                        <a
+                            href={route('reports.bilan.pdf', { as_of_date: asOfDate })}
+                            className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                            title="Le PDF est généré en arrière-plan et apparaîtra dans « Mes exports »."
+                        >
+                            Exporter PDF
+                        </a>
+                    </div>
                 </div>
 
                 <form

@@ -1,5 +1,7 @@
 import { Head, Link, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import AsyncCombobox from '@/Components/UI/AsyncCombobox';
 
 function FieldError({ message }) {
     if (!message) return null;
@@ -8,13 +10,14 @@ function FieldError({ message }) {
 }
 
 export default function Create({
-    contacts = [],
     accounts = [],
     expenseAccounts = [],
     taxRates = [],
     prefill = {},
+    prefillContact = null,
 }) {
     const accountOptions = accounts.length > 0 ? accounts : expenseAccounts;
+    const [contactPrefill, setContactPrefill] = useState(prefillContact);
     const { data, setData, post, processing, errors } = useForm({
         contact_id: prefill.contact_id || '',
         expense_date: prefill.expense_date || new Date().toISOString().slice(0, 10),
@@ -78,18 +81,19 @@ export default function Create({
                                 <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Fournisseur
                                 </label>
-                                <select
+                                <AsyncCombobox
+                                    endpoint="/suggest/contacts"
                                     value={data.contact_id}
-                                    onChange={(e) => setData('contact_id', e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                                >
-                                    <option value="">Sélectionner un fournisseur</option>
-                                    {contacts.map((contact) => (
-                                        <option key={contact.id} value={contact.id}>
-                                            {contact.display_name || contact.raison_sociale}
-                                        </option>
-                                    ))}
-                                </select>
+                                    prefill={contactPrefill}
+                                    onChange={(id, option) => {
+                                        setData('contact_id', id || '');
+                                        setContactPrefill(option ?? null);
+                                    }}
+                                    getLabel={(c) => c.display_name}
+                                    placeholder="Rechercher un fournisseur…"
+                                    extraParams={{ type: 'supplier' }}
+                                    ariaLabel="Fournisseur"
+                                />
                                 <FieldError message={errors.contact_id} />
                             </div>
 

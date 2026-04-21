@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useNotification } from '@/Context/NotificationContext';
 
 const DOCUMENT_TYPES = [
     { value: 'expense', label: 'Dépense / reçu' },
@@ -410,6 +411,7 @@ export default function Index({ documents, config }) {
     const [activeId, setActiveId] = useState(null);
     const [active, setActive] = useState(null);
     const [loadingActive, setLoadingActive] = useState(false);
+    const { error: notifyError } = useNotification();
 
     const rows = documents?.data ?? [];
 
@@ -448,10 +450,10 @@ export default function Index({ documents, config }) {
                     },
                 });
             } catch (error) {
-                alert(
+                const message =
                     error?.response?.data?.message ||
-                        "Le téléversement a échoué. Vérifiez le format et la taille du fichier."
-                );
+                    "Le téléversement a échoué. Vérifiez le format et la taille du fichier.";
+                notifyError(message);
             } finally {
                 setUploading(false);
                 setUploadProgress(0);
@@ -521,7 +523,7 @@ export default function Index({ documents, config }) {
             router.reload({ only: ['documents'] });
             fetchActive(id);
         } catch (e) {
-            alert('La relance a échoué.');
+            notifyError("La relance de l'OCR a échoué.");
         }
     };
 

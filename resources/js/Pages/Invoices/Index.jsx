@@ -1,7 +1,10 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Badge from '@/Components/UI/Badge';
+import CursorPager from '@/Components/UI/CursorPager';
+import TableSkeleton from '@/Components/UI/TableSkeleton';
+import { useDebouncedFilters } from '@/Hooks/useDebouncedFilters';
+import { useNotification } from '@/Context/NotificationContext';
 
 const formatCurrency = (value) =>
     new Intl.NumberFormat('fr-DZ', {
@@ -20,50 +23,36 @@ const formatDate = (value) => {
 };
 
 export default function Index({ invoices, filters = {} }) {
-    const { flash } = usePage().props;
-    const [search, setSearch] = useState(filters.search ?? '');
-    const [status, setStatus] = useState(filters.status ?? '');
-    const [dateFrom, setDateFrom] = useState(filters.date_from ?? '');
-    const [dateTo, setDateTo] = useState(filters.date_to ?? '');
+    const { confirm } = useNotification();
 
-    const applyFilters = (e) => {
-        e?.preventDefault?.();
-        router.get(
-            '/invoices',
-            {
-                search: search || undefined,
-                status: status || undefined,
-                date_from: dateFrom || undefined,
-                date_to: dateTo || undefined,
-            },
-            {
-                preserveState: true,
-                preserveScroll: true,
-                replace: true,
-            }
-        );
-    };
+    // Debounced partial reload: typing into a filter only re-fetches the
+    // `invoices` + `filters` props, not the entire Inertia payload. The
+    // hook itself coalesces keystrokes so we fire at most one request
+    // per 300ms burst.
+    const { values, setValue, loading, apply, reset } = useDebouncedFilters({
+        url: '/invoices',
+        only: ['invoices', 'filters'],
+        defaults: { search: '', status: '', date_from: '', date_to: '' },
+        initial: filters,
+    });
 
-    const resetFilters = () => {
-        setSearch('');
-        setStatus('');
-        setDateFrom('');
-        setDateTo('');
-
-        router.get('/invoices', {}, {
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
+    const issueInvoice = async (invoice) => {
+        const ok = await confirm({
+            title: 'Émettre la facture',
+            message: `Émettre la facture ${invoice.invoice_number || '(brouillon)'} ? Elle sera numérotée et non-modifiable.`,
+            confirmLabel: 'Émettre',
         });
-    };
-
-    const issueInvoice = (invoice) => {
-        if (!confirm(`Émettre la facture ${invoice.invoice_number || '(brouillon)'} ? Elle sera numérotée et non-modifiable.`)) return;
+        if (!ok) return;
         router.post(`/invoices/${invoice.id}/issue`, {}, { preserveScroll: true });
     };
 
-    const voidInvoice = (invoice) => {
-        if (!confirm(`Annuler la facture ${invoice.invoice_number || ''} ?`)) return;
+    const voidInvoice = async (invoice) => {
+        const ok = await confirm({
+            title: 'Annuler la facture',
+            message: `Annuler la facture ${invoice.invoice_number || ''} ?`,
+            confirmLabel: 'Annuler la facture',
+        });
+        if (!ok) return;
         router.post(`/invoices/${invoice.id}/void`, {}, { preserveScroll: true });
     };
 
@@ -88,18 +77,13 @@ export default function Index({ invoices, filters = {} }) {
                     </Link>
                 </div>
 
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
-                {flash?.error && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        {flash.error}
-                    </div>
-                )}
-
-                <form onSubmit={applyFilters} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <form
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        apply();
+                    }}
+                    className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                >
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         <div>
                             <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -107,8 +91,8 @@ export default function Index({ invoices, filters = {} }) {
                             </label>
                             <input
                                 type="text"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                value={values.search}
+                                onChange={(e) => setValue('search', e.target.value)}
                                 placeholder="Client ou N° facture"
                                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                             />
@@ -119,8 +103,8 @@ export default function Index({ invoices, filters = {} }) {
                                 Statut
                             </label>
                             <select
-                                value={status}
-                                onChange={(e) => setStatus(e.target.value)}
+                                value={values.status}
+                                onChange={(e) => setValue('status', e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                             >
                                 <option value="">Tous</option>
@@ -139,8 +123,8 @@ export default function Index({ invoices, filters = {} }) {
                             </label>
                             <input
                                 type="date"
-                                value={dateFrom}
-                                onChange={(e) => setDateFrom(e.target.value)}
+                                value={values.date_from}
+                                onChange={(e) => setValue('date_from', e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                             />
                         </div>
@@ -151,8 +135,8 @@ export default function Index({ invoices, filters = {} }) {
                             </label>
                             <input
                                 type="date"
-                                value={dateTo}
-                                onChange={(e) => setDateTo(e.target.value)}
+                                value={values.date_to}
+                                onChange={(e) => setValue('date_to', e.target.value)}
                                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                             />
                         </div>
@@ -160,21 +144,16 @@ export default function Index({ invoices, filters = {} }) {
 
                     <div className="mt-4 flex flex-wrap items-center gap-3">
                         <button
-                            type="submit"
-                            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-                        >
-                            Filtrer
-                        </button>
-
-                        <button
                             type="button"
-                            onClick={resetFilters}
+                            onClick={reset}
                             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                         >
                             Réinitialiser
                         </button>
                         <span className="ml-auto text-xs text-gray-500">
-                            {invoices?.total ?? invoices?.data?.length ?? 0} résultat(s)
+                            {loading
+                                ? 'Chargement…'
+                                : `${invoices?.data?.length ?? 0} résultat(s) sur cette page`}
                         </span>
                     </div>
                 </form>
@@ -214,6 +193,9 @@ export default function Index({ invoices, filters = {} }) {
                                 </tr>
                             </thead>
 
+                            {loading ? (
+                                <TableSkeleton rows={8} columns={9} />
+                            ) : (
                             <tbody className="divide-y divide-gray-100 bg-white">
                                 {invoices?.data?.length > 0 ? (
                                     invoices.data.map((invoice) => (
@@ -299,29 +281,11 @@ export default function Index({ invoices, filters = {} }) {
                                     </tr>
                                 )}
                             </tbody>
+                            )}
                         </table>
                     </div>
 
-                    {invoices?.links?.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2 border-t border-gray-200 px-4 py-3">
-                            {invoices.links.map((link, index) => (
-                                <Link
-                                    key={`${link.label}-${index}`}
-                                    href={link.url || '#'}
-                                    preserveScroll
-                                    className={[
-                                        'rounded-md px-3 py-1.5 text-sm',
-                                        link.active
-                                            ? 'bg-indigo-600 text-white'
-                                            : link.url
-                                            ? 'bg-white text-gray-700 hover:bg-gray-50'
-                                            : 'cursor-not-allowed bg-gray-100 text-gray-400',
-                                    ].join(' ')}
-                                    dangerouslySetInnerHTML={{ __html: link.label }}
-                                />
-                            ))}
-                        </div>
-                    )}
+                    <CursorPager paginator={invoices} only={['invoices', 'filters']} />
                 </div>
             </div>
         </AuthenticatedLayout>

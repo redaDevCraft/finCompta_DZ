@@ -1,4 +1,4 @@
-import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { CheckCircle2, Download, FileText, Upload } from 'lucide-react';
 
@@ -7,7 +7,6 @@ function formatDzd(n) {
 }
 
 export default function BonDeCommande({ payment, payee, admin_email }) {
-    const { flash } = usePage().props;
     const form = useForm({
         proof: null,
     });
@@ -22,12 +21,6 @@ export default function BonDeCommande({ payment, payee, admin_email }) {
             <Head title="Bon de commande" />
 
             <div className="mx-auto max-w-3xl space-y-6">
-                {flash?.success && (
-                    <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        <CheckCircle2 className="h-4 w-4 mt-0.5" /> {flash.success}
-                    </div>
-                )}
-
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex items-start justify-between">
                         <div>

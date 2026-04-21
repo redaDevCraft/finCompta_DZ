@@ -20,6 +20,7 @@ const navItems = [
     { href: '/admin/companies', label: 'Sociétés', icon: Building2 },
     { href: '/admin/users', label: 'Utilisateurs', icon: Users },
     { href: '/admin/plans', label: 'Plans tarifaires', icon: Package },
+    { href: '/admin/plan-features', label: 'Fonctionnalités plans', icon: Package },
 ];
 
 function isActive(url, href) {
@@ -31,7 +32,6 @@ export default function AdminLayout({ header, children }) {
     const { url, props } = usePage();
     const [mobileOpen, setMobileOpen] = useState(false);
     const user = props.auth?.user ?? null;
-    const flash = props.flash ?? {};
 
     const sidebar = (
         <div className="flex h-full flex-col bg-slate-900 text-slate-100">
@@ -139,16 +139,6 @@ export default function AdminLayout({ header, children }) {
                         </div>
                     </div>
                 </header>
-
-                {flash.success && (
-                    <div className="bg-emerald-50 px-4 py-2 text-sm text-emerald-800 sm:px-6 lg:px-8">{flash.success}</div>
-                )}
-                {flash.warning && (
-                    <div className="bg-amber-50 px-4 py-2 text-sm text-amber-800 sm:px-6 lg:px-8">{flash.warning}</div>
-                )}
-                {flash.error && (
-                    <div className="bg-rose-50 px-4 py-2 text-sm text-rose-800 sm:px-6 lg:px-8">{flash.error}</div>
-                )}
 
                 <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
             </div>

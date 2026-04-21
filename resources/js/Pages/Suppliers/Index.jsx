@@ -51,7 +51,7 @@ export default function SuppliersIndex({ suppliers, filters = {}, kpis = {} }) {
                         </p>
                     </div>
                     <Link
-                        href="/contacts"
+                        href={route('contacts.index', { create: 1, type: 'supplier' })}
                         className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700"
                     >
                         <Plus className="h-4 w-4" /> Nouveau fournisseur

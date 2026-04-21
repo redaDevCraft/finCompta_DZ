@@ -2,6 +2,7 @@ import { Head, router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, X, Building2 } from 'lucide-react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useNotification } from '@/Context/NotificationContext';
 
 function Modal({ open, onClose, title, children }) {
     if (!open) return null;
@@ -124,9 +125,15 @@ function BankForm({ bank, glAccounts, onClose }) {
 
 export default function BankAccounts({ bankAccounts, glAccounts }) {
     const [modal, setModal] = useState({ open: false, bank: null });
+    const { confirm } = useNotification();
 
-    const destroy = (bank) => {
-        if (!confirm(`Supprimer le compte "${bank.bank_name}" ?`)) return;
+    const destroy = async (bank) => {
+        const ok = await confirm({
+            title: 'Supprimer le compte bancaire',
+            message: `Supprimer le compte "${bank.bank_name}" ?`,
+            confirmLabel: 'Supprimer',
+        });
+        if (!ok) return;
         router.delete(`/settings/bank-accounts/${bank.id}`, { preserveScroll: true });
     };
 

@@ -56,6 +56,11 @@ class Plan extends Model
         return $this->hasMany(Subscription::class);
     }
 
+    public function planFeatures(): HasMany
+    {
+        return $this->hasMany(PlanFeature::class);
+    }
+
     public function priceForCycle(string $cycle): int
     {
         return $cycle === 'yearly' ? (int) $this->yearly_price_dzd : (int) $this->monthly_price_dzd;

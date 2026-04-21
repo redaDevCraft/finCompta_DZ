@@ -2,6 +2,7 @@ import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import AsyncCombobox from '@/Components/UI/AsyncCombobox';
 
 function FieldError({ message }) {
     if (!message) return null;
@@ -27,14 +28,17 @@ function emptyLine() {
     };
 }
 
+const accountLabel = (a) => `${a.code} — ${a.label}`;
+const contactLabel = (c) => c.display_name;
+
 export default function CreateJournalEntry({
     form = {},
     journals = [],
-    accounts = [],
-    contacts = [],
+    prefillAccounts = [],
+    prefillContacts = [],
     isEdit = false,
 }) {
-    const { data, setData, post, put, processing, errors, reset } = useForm({
+    const { data, setData, processing, errors, reset } = useForm({
         entry_date: form.entry_date || new Date().toISOString().slice(0, 10),
         journal_id: form.journal_id || '',
         reference: form.reference || '',
@@ -44,6 +48,21 @@ export default function CreateJournalEntry({
             : [emptyLine(), emptyLine()]),
         post_immediately: false,
     });
+
+    // Index prefills by id so each line's AsyncCombobox can resolve its
+    // initial display label without hitting the wire. Built once per
+    // navigation; the combobox itself caches subsequent queries.
+    const accountsById = useMemo(() => {
+        const map = new Map();
+        for (const a of prefillAccounts) map.set(a.id, a);
+        return map;
+    }, [prefillAccounts]);
+
+    const contactsById = useMemo(() => {
+        const map = new Map();
+        for (const c of prefillContacts) map.set(c.id, c);
+        return map;
+    }, [prefillContacts]);
 
     const totals = useMemo(() => {
         const debit = data.lines.reduce(
@@ -66,7 +85,6 @@ export default function CreateJournalEntry({
     const setLine = (index, field, value) => {
         const next = data.lines.map((l, i) => (i === index ? { ...l, [field]: value } : l));
 
-        // mutually-exclusive debit/credit convenience: clear the counterpart
         if (field === 'debit' && value !== '' && parseFloat(value) > 0) {
             next[index].credit = '';
         } else if (field === 'credit' && value !== '' && parseFloat(value) > 0) {
@@ -225,10 +243,10 @@ export default function CreateJournalEntry({
                             <table className="min-w-full divide-y divide-slate-200">
                                 <thead className="bg-slate-50">
                                     <tr>
-                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[22%]">
+                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[24%]">
                                             Compte
                                         </th>
-                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[16%]">
+                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[18%]">
                                             Tiers
                                         </th>
                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -259,37 +277,28 @@ export default function CreateJournalEntry({
                                         return (
                                             <tr key={index} className={lineError ? 'bg-rose-50' : ''}>
                                                 <td className="px-3 py-2 align-top">
-                                                    <select
+                                                    <AsyncCombobox
+                                                        endpoint="/suggest/accounts"
                                                         value={line.account_id}
-                                                        onChange={(e) =>
-                                                            setLine(index, 'account_id', e.target.value)
-                                                        }
-                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                                                        prefill={accountsById.get(line.account_id) ?? null}
+                                                        onChange={(id) => setLine(index, 'account_id', id || '')}
+                                                        getLabel={accountLabel}
+                                                        placeholder="Tapez un code…"
+                                                        minChars={1}
                                                         required
-                                                    >
-                                                        <option value="">—</option>
-                                                        {accounts.map((a) => (
-                                                            <option key={a.id} value={a.id}>
-                                                                {a.code} — {a.label}
-                                                            </option>
-                                                        ))}
-                                                    </select>
+                                                        ariaLabel={`Compte de la ligne ${index + 1}`}
+                                                    />
                                                 </td>
                                                 <td className="px-3 py-2 align-top">
-                                                    <select
+                                                    <AsyncCombobox
+                                                        endpoint="/suggest/contacts"
                                                         value={line.contact_id}
-                                                        onChange={(e) =>
-                                                            setLine(index, 'contact_id', e.target.value)
-                                                        }
-                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-                                                    >
-                                                        <option value="">—</option>
-                                                        {contacts.map((c) => (
-                                                            <option key={c.id} value={c.id}>
-                                                                {c.display_name}
-                                                            </option>
-                                                        ))}
-                                                    </select>
+                                                        prefill={contactsById.get(line.contact_id) ?? null}
+                                                        onChange={(id) => setLine(index, 'contact_id', id || '')}
+                                                        getLabel={contactLabel}
+                                                        placeholder="Optionnel"
+                                                        ariaLabel={`Tiers de la ligne ${index + 1}`}
+                                                    />
                                                 </td>
                                                 <td className="px-3 py-2 align-top">
                                                     <input

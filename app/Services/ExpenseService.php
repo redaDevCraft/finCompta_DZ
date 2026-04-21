@@ -6,6 +6,7 @@ use App\Models\AiSuggestion;
 use App\Models\Company;
 use App\Models\Expense;
 use App\Models\User;
+use App\Support\Cache\DashboardCache;
 use Illuminate\Support\Facades\DB;
 
 class ExpenseService
@@ -31,6 +32,9 @@ class ExpenseService
 
             $this->journal->draftPurchaseEntry($expense->fresh(), $company);
         });
+
+        // Confirmed expense shifts AP, expenses YTD/MTD, top creditors, series.
+        DashboardCache::forget($company->id);
 
         return [
             'success' => true,

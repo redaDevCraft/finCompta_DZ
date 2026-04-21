@@ -2,6 +2,7 @@ import { Head, router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, X, Lock } from 'lucide-react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useNotification } from '@/Context/NotificationContext';
 
 function Modal({ open, onClose, title, children }) {
     if (!open) return null;
@@ -152,9 +153,15 @@ function JournalForm({ journal, counterpartAccounts, types, onClose }) {
 
 export default function Journals({ journals, counterpartAccounts, types }) {
     const [modal, setModal] = useState({ open: false, journal: null });
+    const { confirm } = useNotification();
 
-    const destroy = (journal) => {
-        if (!confirm(`Supprimer le journal ${journal.code} ?`)) return;
+    const destroy = async (journal) => {
+        const ok = await confirm({
+            title: 'Supprimer le journal',
+            message: `Supprimer le journal ${journal.code} ?`,
+            confirmLabel: 'Supprimer',
+        });
+        if (!ok) return;
         router.delete(`/settings/journals/${journal.id}`, { preserveScroll: true });
     };
 

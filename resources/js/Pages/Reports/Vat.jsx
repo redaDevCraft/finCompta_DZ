@@ -1,4 +1,4 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 
@@ -53,12 +53,21 @@ export default function Vat({
                         </p>
                     </div>
 
-                    <Link
-                        href={exportUrl}
-                        className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
-                    >
-                        Exporter Excel
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <a
+                            href="/reports/runs"
+                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                            Mes exports
+                        </a>
+                        <a
+                            href={exportUrl}
+                            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+                            title="L’export est généré en arrière-plan et apparaîtra dans « Mes exports »."
+                        >
+                            Exporter Excel
+                        </a>
+                    </div>
                 </div>
 
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">

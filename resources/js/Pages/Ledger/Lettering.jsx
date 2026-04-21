@@ -1,6 +1,7 @@
-import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useNotification } from '@/Context/NotificationContext';
 
 function formatMoney(value) {
     return new Intl.NumberFormat('fr-DZ', {
@@ -35,7 +36,7 @@ export default function Lettering({
     letterings = [],
     openBalance = 0,
 }) {
-    const { flash } = usePage().props;
+    const { confirm } = useNotification();
 
     const [accountId, setAccountId] = useState(selectedAccountId || '');
     const [contactId, setContactId] = useState(selectedContactId || '');
@@ -123,8 +124,13 @@ export default function Lettering({
         });
     };
 
-    const unmatch = (letteringId, code) => {
-        if (!confirm(`Supprimer le lettrage ${code} ?`)) return;
+    const unmatch = async (letteringId, code) => {
+        const ok = await confirm({
+            title: 'Supprimer le lettrage',
+            message: `Supprimer le lettrage ${code} ?`,
+            confirmLabel: 'Supprimer',
+        });
+        if (!ok) return;
         router.delete(route('ledger.lettering.destroy', letteringId), {
             preserveScroll: true,
         });
@@ -145,17 +151,6 @@ export default function Lettering({
                         (401 Fournisseurs, 411 Clients, 42x Personnel…).
                     </p>
                 </div>
-
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
-                {flash?.error && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        {flash.error}
-                    </div>
-                )}
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <form onSubmit={applyFilters} className="grid gap-4 md:grid-cols-4">

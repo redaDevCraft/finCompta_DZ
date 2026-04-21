@@ -63,11 +63,14 @@ class DocumentController extends Controller
         $company = app('currentCompany');
         $file = $request->file('file');
 
-        $key = 'documents/'.$company->id.'/'.$file->hashName();
-
-        Storage::disk('local')->put(
-            $key,
-            file_get_contents($file->getRealPath())
+        // storeAs streams the temp file to the disk (fopen + fputs in chunks),
+        // instead of file_get_contents() which loads the whole upload into
+        // PHP memory (up to OCR_UPLOAD_MAX_KB = 20MB). For a handful of
+        // concurrent uploaders, this was a real memory ceiling.
+        $key = $file->storeAs(
+            'documents/'.$company->id,
+            $file->hashName(),
+            'local'
         );
 
         $doc = Document::create([
@@ -84,7 +87,8 @@ class DocumentController extends Controller
         ]);
 
         ProcessDocumentOcr::dispatch($doc->id)
-            ->onQueue((string) config('ocr.processing.queue', 'ocr'));
+            ->onQueue((string) config('ocr.processing.queue', 'ocr'))
+            ->afterCommit();
 
         return response()->json([
             'document_id' => $doc->id,
@@ -96,11 +100,16 @@ class DocumentController extends Controller
     {
         $this->authorizeDocument($document);
 
+        // Bounded: a document should very rarely be linked to more than a
+        // handful of expenses. Capping at 100 protects against pathological
+        // cases (e.g. an OCR import mistakenly reused as the source for many
+        // expense records).
         $linkedExpenses = Expense::query()
             ->where('company_id', $document->company_id)
             ->where('source_document_id', $document->id)
             ->with('contact:id,display_name')
             ->orderByDesc('created_at')
+            ->limit(100)
             ->get([
                 'id',
                 'reference',
@@ -199,7 +208,8 @@ class DocumentController extends Controller
         ]);
 
         ProcessDocumentOcr::dispatch($document->id)
-            ->onQueue((string) config('ocr.processing.queue', 'ocr'));
+            ->onQueue((string) config('ocr.processing.queue', 'ocr'))
+            ->afterCommit();
 
         return response()->json([
             'document_id' => $document->id,
