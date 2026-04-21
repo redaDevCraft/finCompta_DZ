@@ -9,7 +9,9 @@ use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
+use App\Support\Cache\DashboardCache;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,36 +20,44 @@ class DashboardController extends Controller
     public function index(): Response
     {
         $companyId = app('currentCompany')->id;
-        $today = Carbon::today();
+        $today = \Illuminate\Support\Carbon::today();
+   
+
+        // Key is versioned via DashboardCache::keyFor(): writes bump the per-
+        // company revision counter, which makes every existing key for that
+        // company unreachable in O(1). TTL is a safety net, not the primary
+        // invalidation mechanism.
+        $payload = Cache::remember(
+            DashboardCache::keyFor($companyId, $today),
+            DashboardCache::CACHE_TTL_SECONDS,
+            fn () => $this->buildDashboardPayload($companyId, $today),
+        );
+
+        return Inertia::render('Dashboard/Index', $payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDashboardPayload(string $companyId, Carbon $today): array
+    {
         $startOfMonth = $today->copy()->startOfMonth();
         $startOfYear = $today->copy()->startOfYear();
 
-        // --- KPIs from general ledger (posted entries) ---
-        // Class 5 = Cash & bank
         $cashBalance = $this->sumClassBalance($companyId, [5]);
-        // Class 411 = Clients (AR)
         $arBalance = $this->sumAccountBalanceByCodePrefix($companyId, ['411']);
-        // Class 401 = Suppliers (AP) — normally credit balance, we return absolute
         $apBalance = $this->sumAccountBalanceByCodePrefix($companyId, ['401']);
 
-        // Revenue YTD (class 7 = credit normal, balance = credit - debit)
         $revenueYtd = $this->sumClassRevenue($companyId, 7, $startOfYear, $today);
         $revenueMtd = $this->sumClassRevenue($companyId, 7, $startOfMonth, $today);
-
-        // Expenses YTD / MTD (class 6 = debit normal)
         $expensesYtd = $this->sumClassExpense($companyId, 6, $startOfYear, $today);
         $expensesMtd = $this->sumClassExpense($companyId, 6, $startOfMonth, $today);
-
         $resultYtd = $revenueYtd - $expensesYtd;
 
-        // --- Monthly revenue vs expenses series (12 months rolling) ---
         $series = $this->buildMonthlySeries($companyId, $today);
-
-        // --- Top 5 open client balances (Classe 411 unlettered) ---
         $topDebtors = $this->topOpenBalances($companyId, '411', direction: 'debit');
         $topCreditors = $this->topOpenBalances($companyId, '401', direction: 'credit');
 
-        // --- Recent posted journal entries ---
         $recentEntries = JournalEntry::query()
             ->where('company_id', $companyId)
             ->where('status', 'posted')
@@ -58,7 +68,6 @@ class DashboardController extends Controller
             ->limit(8)
             ->get();
 
-        // --- Operational signals ---
         $draftEntriesCount = JournalEntry::query()
             ->where('company_id', $companyId)
             ->where('status', 'draft')
@@ -76,7 +85,6 @@ class DashboardController extends Controller
 
         $unletteredLinesCount = $this->unletteredLinesCount($companyId);
 
-        // --- Invoices / Expenses fallbacks (still useful when user creates them) ---
         $draftInvoicesCount = Invoice::query()
             ->where('company_id', $companyId)
             ->where('status', 'draft')
@@ -94,7 +102,7 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        return Inertia::render('Dashboard/Index', [
+        return [
             'kpis' => [
                 'cash_balance' => (float) $cashBalance,
                 'ar_balance' => (float) $arBalance,
@@ -118,7 +126,8 @@ class DashboardController extends Controller
                 'pending_documents' => $pendingDocumentsCount,
                 'unlettered_lines' => $unletteredLinesCount,
             ],
-        ]);
+            'cached_at' => now()->toIso8601String(),
+        ];
     }
 
     /**

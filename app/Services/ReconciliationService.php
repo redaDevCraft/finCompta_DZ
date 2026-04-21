@@ -7,6 +7,7 @@ use App\Models\BankTransaction;
 use App\Models\Company;
 use App\Models\JournalEntry;
 use App\Models\User;
+use App\Support\Cache\DashboardCache;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -92,6 +93,9 @@ class ReconciliationService
                 $this->journal->post($entry->fresh('lines'), $user);
             }
         });
+
+        // Matching may post a draft entry → shifts cash, AR/AP, result.
+        DashboardCache::forget($tx->company_id);
     }
 
     public function manualPost(BankTransaction $tx, string $accountId, string $description, User $user): void
@@ -176,6 +180,9 @@ class ReconciliationService
                 'matched_at' => now(),
             ]);
         });
+
+        // Manual post creates a brand-new journal entry → dashboard stale.
+        DashboardCache::forget($tx->company_id);
     }
 
     public function exclude(BankTransaction $tx): void

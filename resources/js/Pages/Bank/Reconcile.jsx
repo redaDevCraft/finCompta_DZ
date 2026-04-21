@@ -1,4 +1,4 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import {
     ArrowDownLeft,
@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import Alert from '@/Components/UI/Alert';
+import AsyncCombobox from '@/Components/UI/AsyncCombobox';
+import CursorPager from '@/Components/UI/CursorPager';
 
 const formatCurrency = (value) =>
     new Intl.NumberFormat('fr-DZ', {
@@ -153,10 +154,10 @@ function ManualPostModal({
     open,
     onClose,
     transaction,
-    postingAccounts,
     processing,
 }) {
     const [accountId, setAccountId] = useState('');
+    const [accountPrefill, setAccountPrefill] = useState(null);
     const [description, setDescription] = useState('');
 
     if (!open || !transaction) return null;
@@ -175,6 +176,7 @@ function ManualPostModal({
                 preserveScroll: true,
                 onSuccess: () => {
                     setAccountId('');
+                    setAccountPrefill(null);
                     setDescription('');
                     onClose();
                 },
@@ -216,19 +218,20 @@ function ManualPostModal({
                         <label className="mb-1 block text-sm font-medium text-gray-700">
                             Compte bancaire
                         </label>
-                        <select
-    value={accountId}
-    onChange={(e) => setAccountId(e.target.value)}
-    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-    required
->
-    <option value="">Sélectionner un compte</option>
-    {postingAccounts.map((account) => (
-        <option key={account.id} value={account.id}>
-            {account.code} - {account.label}
-        </option>
-    ))}
-</select>
+                        <AsyncCombobox
+                            endpoint="/suggest/accounts"
+                            value={accountId}
+                            prefill={accountPrefill}
+                            onChange={(id, option) => {
+                                setAccountId(id || '');
+                                setAccountPrefill(option ?? null);
+                            }}
+                            getLabel={(a) => `${a.code} — ${a.label}`}
+                            placeholder="Code ou libellé du compte…"
+                            minChars={1}
+                            required
+                            ariaLabel="Compte bancaire"
+                        />
                     </div>
 
                     <div>
@@ -268,9 +271,7 @@ function ManualPostModal({
     );
 }
 
-export default function Reconcile({ bankTransactions, openItems, postingAccounts  }) {
-    const flash = usePage().props.flash ?? {};
-
+export default function Reconcile({ bankTransactions, openItems }) {
     const [selectedTransactionId, setSelectedTransactionId] = useState(
         bankTransactions?.data?.[0]?.id ?? null
     );
@@ -281,19 +282,30 @@ export default function Reconcile({ bankTransactions, openItems, postingAccounts
     const selectedTransaction =
         bankTransactions?.data?.find((tx) => tx.id === selectedTransactionId) ?? null;
 
+    const openItemsData = useMemo(() => {
+        const raw = openItems?.data ?? openItems ?? [];
+        return raw.map((item) => ({
+            ...item,
+            // For a balanced entry, total_debit == total_credit, so the debit
+            // side is the absolute settlement amount we match against the
+            // bank transaction.
+            amount: Number(item.totals?.debit ?? item.amount ?? 0),
+        }));
+    }, [openItems]);
+
     const rankedOpenItems = useMemo(() => {
         if (!selectedTransaction) {
-            return openItems ?? [];
+            return openItemsData;
         }
 
-        return [...(openItems ?? [])]
+        return [...openItemsData]
             .map((item) => ({
                 ...item,
                 match_score: computeScore(selectedTransaction, item),
                 amount_tone: getAmountMatchTone(selectedTransaction.amount, item.amount),
             }))
             .sort((a, b) => b.match_score - a.match_score);
-    }, [selectedTransaction, openItems]);
+    }, [selectedTransaction, openItemsData]);
 
     const selectedEntry =
         rankedOpenItems.find((item) => item.id === selectedEntryId) ?? null;
@@ -344,10 +356,6 @@ export default function Reconcile({ bankTransactions, openItems, postingAccounts
                         Comparez les transactions bancaires avec les écritures en attente sans rapprochement automatique.
                     </p>
                 </div>
-
-                {flash.success && (
-                    <Alert variant="success">{flash.success}</Alert>
-                )}
 
                 <div className="grid gap-6 xl:grid-cols-2">
                     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -439,26 +447,10 @@ export default function Reconcile({ bankTransactions, openItems, postingAccounts
                             )}
                         </div>
 
-                        {bankTransactions?.links?.length > 0 && (
-                            <div className="flex flex-wrap gap-2 border-t border-gray-200 px-4 py-3">
-                                {bankTransactions.links.map((link, index) => (
-                                    <Link
-                                        key={`${link.label}-${index}`}
-                                        href={link.url || '#'}
-                                        preserveScroll
-                                        className={[
-                                            'rounded-md px-3 py-1.5 text-sm',
-                                            link.active
-                                                ? 'bg-indigo-600 text-white'
-                                                : link.url
-                                                ? 'bg-white text-gray-700 hover:bg-gray-50'
-                                                : 'cursor-not-allowed bg-gray-100 text-gray-400',
-                                        ].join(' ')}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                ))}
-                            </div>
-                        )}
+                        <CursorPager
+                            paginator={bankTransactions}
+                            only={['bankTransactions']}
+                        />
                     </div>
 
                     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -534,6 +526,11 @@ export default function Reconcile({ bankTransactions, openItems, postingAccounts
                                 </div>
                             )}
                         </div>
+
+                        <CursorPager
+                            paginator={openItems}
+                            only={['openItems']}
+                        />
                     </div>
                 </div>
 
@@ -548,7 +545,6 @@ export default function Reconcile({ bankTransactions, openItems, postingAccounts
                     open={manualModalOpen}
                     onClose={() => setManualModalOpen(false)}
                     transaction={selectedTransaction}
-                    postingAccounts={postingAccounts}
                     processing={processing}
                 />
             </div>

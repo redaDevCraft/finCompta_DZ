@@ -1,6 +1,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Badge from '@/Components/UI/Badge';
+import { useNotification } from '@/Context/NotificationContext';
 import {
     AlertCircle,
     ArrowLeft,
@@ -36,7 +37,8 @@ const docTypeLabel = (type) =>
     })[type] ?? type;
 
 export default function Show({ invoice }) {
-    const { flash, errors } = usePage().props;
+    const { errors } = usePage().props;
+    const { confirm } = useNotification();
 
     if (!invoice) {
         return (
@@ -53,18 +55,33 @@ export default function Show({ invoice }) {
     const canVoid = invoice.status === 'issued' || invoice.status === 'partially_paid';
     const canCredit = invoice.status === 'issued' || invoice.status === 'partially_paid' || invoice.status === 'paid';
 
-    const issueInvoice = () => {
-        if (!confirm('Émettre cette facture ? Elle sera numérotée et non-modifiable.')) return;
+    const issueInvoice = async () => {
+        const ok = await confirm({
+            title: 'Émettre la facture',
+            message: 'Émettre cette facture ? Elle sera numérotée et non-modifiable.',
+            confirmLabel: 'Émettre',
+        });
+        if (!ok) return;
         router.post(`/invoices/${invoice.id}/issue`, {}, { preserveScroll: true });
     };
 
-    const voidInvoice = () => {
-        if (!confirm('Annuler cette facture ?')) return;
+    const voidInvoice = async () => {
+        const ok = await confirm({
+            title: 'Annuler la facture',
+            message: 'Annuler cette facture ?',
+            confirmLabel: 'Annuler',
+        });
+        if (!ok) return;
         router.post(`/invoices/${invoice.id}/void`, {}, { preserveScroll: true });
     };
 
-    const createCredit = () => {
-        if (!confirm('Créer un avoir pour cette facture ?')) return;
+    const createCredit = async () => {
+        const ok = await confirm({
+            title: 'Créer un avoir',
+            message: 'Créer un avoir pour cette facture ?',
+            confirmLabel: 'Créer',
+        });
+        if (!ok) return;
         router.post(`/invoices/${invoice.id}/credit`, {}, { preserveScroll: false });
     };
 
@@ -132,16 +149,6 @@ export default function Show({ invoice }) {
                     </div>
                 </div>
 
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
-                {flash?.error && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        {flash.error}
-                    </div>
-                )}
                 {errors && Object.keys(errors).length > 0 && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                         <div className="flex items-center gap-2 font-medium">

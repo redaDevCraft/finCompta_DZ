@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\PaymentConfirmationController;
+use App\Http\Controllers\Admin\PlanFeatureController as AdminPlanFeatureController;
 use App\Http\Controllers\Admin\PlanController as AdminPlanController;
 use App\Http\Controllers\Admin\SubscriptionController as AdminSubscriptionController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExpenseController;
@@ -24,6 +26,7 @@ use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReconciliationController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ReportRunController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SupplierController;
 use Illuminate\Support\Facades\Route;
@@ -81,6 +84,10 @@ Route::middleware(['auth'])->group(function () {
         /* ── Plans (CRUD) ──────────────────────────────────────────── */
         Route::middleware('spatie_permission:plans.view')->group(function () {
             Route::get('/plans', [AdminPlanController::class, 'index'])->name('plans.index');
+            Route::get('/plan-features', [AdminPlanFeatureController::class, 'index'])->name('plan-features.index');
+            Route::match(['put', 'patch'], '/plan-features/{plan}', [AdminPlanFeatureController::class, 'update'])
+                ->middleware('spatie_permission:plans.manage')
+                ->name('plan-features.update');
             Route::get('/plans/create', [AdminPlanController::class, 'create'])
                 ->middleware('spatie_permission:plans.manage')
                 ->name('plans.create');
@@ -191,6 +198,16 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->middleware('role:owner')
         ->name('contacts.destroy');
 
+    /* ── Typeahead lookups (infra for async combobox UIs) ───────────── */
+    // throttle:suggest — 60/min/user. Debounced UX peaks at ~4 rps; the
+    // cap exists to stop scripted address-book scraping.
+    Route::middleware('throttle:suggest')->group(function () {
+        Route::get('/suggest/contacts', [SuggestController::class, 'contacts'])
+            ->name('suggest.contacts');
+        Route::get('/suggest/accounts', [SuggestController::class, 'accounts'])
+            ->name('suggest.accounts');
+    });
+
     /* ── Invoices ───────────────────────────────────────────────────── */
     Route::resource('invoices', InvoiceController::class)->except(['destroy']);
 
@@ -218,6 +235,7 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
 
     /* ── Documents (OCR) ────────────────────────────────────────────── */
     Route::get('/documents', [DocumentController::class, 'index'])
+        ->middleware('plan_feature:ocr')
         ->name('documents.index');
 
     Route::post('/documents/upload', [DocumentController::class, 'upload'])
@@ -225,12 +243,15 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->name('documents.upload');
 
     Route::get('/documents/{document}', [DocumentController::class, 'show'])
+        ->middleware('plan_feature:ocr')
         ->name('documents.show');
 
     Route::get('/documents/{document}/status', [DocumentController::class, 'status'])
+        ->middleware('plan_feature:ocr')
         ->name('documents.status');
 
     Route::get('/documents/{document}/download', [DocumentController::class, 'download'])
+        ->middleware('plan_feature:ocr')
         ->name('documents.download');
 
     Route::post('/documents/{document}/retry', [DocumentController::class, 'retry'])
@@ -238,6 +259,7 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->name('documents.retry');
 
     Route::get('/documents/{document}/use-in-expense', [DocumentController::class, 'useInExpense'])
+        ->middleware('plan_feature:ocr')
         ->middleware('role:owner,accountant')
         ->name('documents.use-in-expense');
 
@@ -252,17 +274,22 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->middleware('role:owner,accountant')
         ->name('bank.import.confirm');
 
-    Route::get('/bank/reconcile', [ReconciliationController::class, 'index'])->name('bank.reconcile');
+    Route::get('/bank/reconcile', [ReconciliationController::class, 'index'])
+        ->middleware('plan_feature:bank_accounts')
+        ->name('bank.reconcile');
 
     Route::post('/bank/reconcile/match', [ReconciliationController::class, 'match'])
+        ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner,accountant')
         ->name('bank.reconcile.match');
 
     Route::post('/bank/reconcile/exclude', [ReconciliationController::class, 'exclude'])
+        ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner,accountant')
         ->name('bank.reconcile.exclude');
 
     Route::post('/bank/reconcile/manual-post', [ReconciliationController::class, 'manualPost'])
+        ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner,accountant')
         ->name('bank.reconcile.manual-post');
 
@@ -295,6 +322,9 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->middleware('role:owner,accountant')
         ->name('ledger.entries.destroy');
 
+    Route::get('/ledger/entries/{entry}/lines', [JournalEntryController::class, 'lines'])
+        ->name('ledger.entries.lines');
+
     Route::get('/ledger/lettering', [LetteringController::class, 'index'])
         ->name('ledger.lettering');
 
@@ -311,11 +341,43 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->name('ledger.lettering.destroy');
 
     /* ── Reports ────────────────────────────────────────────────────── */
-    Route::get('/reports/vat', [ReportController::class, 'vat'])->name('reports.vat');
-    Route::get('/reports/vat/export', [ReportController::class, 'vatExport'])->name('reports.vat.export');
+    Route::get('/reports/vat', [ReportController::class, 'vat'])
+        ->middleware('plan_feature:basic_reports')
+        ->name('reports.vat');
+    Route::get('/reports/vat/export', [ReportController::class, 'queueVatExport'])
+        ->middleware('plan_feature:basic_reports')
+        ->middleware('throttle:reports-queue')
+        ->name('reports.vat.export');
 
-    Route::get('/reports/bilan', [ReportController::class, 'bilan'])->name('reports.bilan');
-    Route::get('/reports/bilan/pdf', [ReportController::class, 'bilanPdf'])->name('reports.bilan.pdf');
+    Route::get('/reports/bilan', [ReportController::class, 'bilan'])
+        ->middleware('plan_feature:advanced_reports')
+        ->name('reports.bilan');
+    // bilanPdf no longer downloads synchronously — it dispatches a job and
+    // redirects to the exports page where the user picks up the artifact
+    // once the worker is done. The URL stays a GET so the existing link in
+    // Bilan.jsx doesn't need custom CSRF / POST handling.
+    //
+    // throttle:reports-queue — caps Dompdf dispatches to 10/hour (and
+    // burst 3/min) per user+tenant. A flood would otherwise starve the
+    // shared `reports` worker for every other tenant.
+    Route::get('/reports/bilan/pdf', [ReportController::class, 'queueBilanPdf'])
+        ->middleware('plan_feature:advanced_reports')
+        ->middleware('throttle:reports-queue')
+        ->name('reports.bilan.pdf');
+
+    /* ── Report runs (async exports) ────────────────────────────────── */
+    Route::get('/reports/runs', [ReportRunController::class, 'index'])->name('reports.runs.index');
+    // /reports/runs/{id} is the status-poll endpoint called every 3 s
+    // from Exports.jsx per non-terminal row. throttle:reports-poll sits
+    // above the normal multi-tab ceiling but blocks tight loops.
+    Route::get('/reports/runs/{reportRun}', [ReportRunController::class, 'show'])
+        ->middleware('throttle:reports-poll')
+        ->name('reports.runs.show');
+    // Downloads are bandwidth-heavy even with streamed output; the
+    // cap prevents mirror-scraping without hurting real users.
+    Route::get('/reports/runs/{reportRun}/download', [ReportRunController::class, 'download'])
+        ->middleware('throttle:reports-download')
+        ->name('reports.runs.download');
 
     Route::get('/reports/aged-receivables', [ReportController::class, 'agedReceivables'])
         ->name('reports.aged-receivables');
@@ -328,6 +390,10 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     Route::put('/settings/company', [SettingsController::class, 'updateCompany'])
         ->middleware('role:owner')
         ->name('settings.company.update');
+
+    Route::get('/settings/performance', [SettingsController::class, 'performance'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.performance');
 
     Route::get('/settings/accounts', [SettingsController::class, 'accounts'])->name('settings.accounts');
 
@@ -359,14 +425,18 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
 
     /* Bank accounts */
     Route::get('/settings/bank-accounts', [SettingsController::class, 'bankAccounts'])
+        ->middleware('plan_feature:bank_accounts')
         ->name('settings.bank-accounts');
     Route::post('/settings/bank-accounts', [SettingsController::class, 'storeBankAccount'])
+        ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner,accountant')
         ->name('settings.bank-accounts.store');
     Route::match(['put', 'patch'], '/settings/bank-accounts/{bank_account}', [SettingsController::class, 'updateBankAccount'])
+        ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner,accountant')
         ->name('settings.bank-accounts.update');
     Route::delete('/settings/bank-accounts/{bank_account}', [SettingsController::class, 'destroyBankAccount'])
+        ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner')
         ->name('settings.bank-accounts.destroy');
 });

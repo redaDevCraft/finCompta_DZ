@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessDocumentOcr;
 use App\Models\BankAccount;
 use App\Models\BankStatementImport;
 use App\Models\BankTransaction;
 use App\Models\Document;
 use App\Services\AiExtractionService;
+use App\Support\Cache\DashboardCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,7 +19,6 @@ use Inertia\Inertia;
 use Inertia\Response;
 use League\Csv\Reader;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Jobs\ProcessDocumentOcr;
 
 class BankController extends Controller
 {
@@ -95,7 +96,7 @@ class BankController extends Controller
                 'status' => 'processing',
             ]);
 
-            ProcessDocumentOcr::dispatch($document->id);
+            ProcessDocumentOcr::dispatch($document->id)->afterCommit();
 
             return response()->json([
                 'import_id' => $import->id,
@@ -147,53 +148,58 @@ class BankController extends Controller
 
         $rows = $this->readNormalizedRows($import->file_path, $import->import_type);
 
-        $rowCount = 0;
+        // Build the insert payload in-memory first (no DB calls in the loop).
+        // We bypass Eloquent to avoid N model events + N boot cycles.
+        $now = now();
+        $payload = [];
         $warnings = [];
 
-        DB::transaction(function () use ($rows, $validated, $import, $companyId, &$rowCount, &$warnings) {
-            foreach ($rows as $index => $row) {
-                $dateValue = $row[$validated['date_column']] ?? null;
-                $labelValue = $row[$validated['label_column']] ?? null;
-                $debitValue = $row[$validated['debit_column']] ?? null;
-                $creditValue = $row[$validated['credit_column']] ?? null;
-                $balanceValue = $validated['balance_column']
-                    ? ($row[$validated['balance_column']] ?? null)
-                    : null;
+        foreach ($rows as $index => $row) {
+            $debit = $this->parseMoney($row[$validated['debit_column']] ?? null);
+            $credit = $this->parseMoney($row[$validated['credit_column']] ?? null);
 
-                $debit = $this->parseMoney($debitValue);
-                $credit = $this->parseMoney($creditValue);
+            if ($debit > 0 && $credit > 0) {
+                $warnings[] = "Ligne {$index}: débit et crédit présents en même temps.";
+                continue;
+            }
 
-                if ($debit > 0 && $credit > 0) {
-                    $warnings[] = "Ligne {$index}: débit et crédit présents en même temps.";
-                    continue;
-                }
+            if ($debit <= 0 && $credit <= 0) {
+                continue;
+            }
 
-                if ($debit <= 0 && $credit <= 0) {
-                    continue;
-                }
+            $balanceRaw = $validated['balance_column']
+                ? ($row[$validated['balance_column']] ?? null)
+                : null;
 
-                $direction = $debit > 0 ? 'debit' : 'credit';
-                $amount = $debit > 0 ? $debit : $credit;
+            // Real column is `import_id` (the old code used `statement_import_id`
+            // which Eloquent silently dropped as non-fillable). bank_transactions
+            // has no `meta` column either, so we drop that too.
+            $payload[] = [
+                'id' => (string) Str::uuid(),
+                'company_id' => $companyId,
+                'bank_account_id' => $import->bank_account_id,
+                'import_id' => $import->id,
+                'transaction_date' => $this->parseDate($row[$validated['date_column']] ?? null),
+                'label' => trim((string) ($row[$validated['label_column']] ?? '')),
+                'amount' => $debit > 0 ? $debit : $credit,
+                'direction' => $debit > 0 ? 'debit' : 'credit',
+                'balance_after' => $balanceRaw !== null && $balanceRaw !== ''
+                    ? $this->parseMoney($balanceRaw)
+                    : null,
+                'reconcile_status' => 'unmatched',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
 
-                BankTransaction::query()->create([
-                    'id' => (string) Str::uuid(),
-                    'company_id' => $companyId,
-                    'bank_account_id' => $import->bank_account_id,
-                    'statement_import_id' => $import->id,
-                    'transaction_date' => $this->parseDate($dateValue),
-                    'label' => trim((string) $labelValue),
-                    'amount' => $amount,
-                    'direction' => $direction,
-                    'balance_after' => $balanceValue !== null && $balanceValue !== ''
-                        ? $this->parseMoney($balanceValue)
-                        : null,
-                    'reconcile_status' => 'unmatched',
-                    'meta' => [
-                        'source_row' => $index,
-                    ],
-                ]);
+        $rowCount = count($payload);
 
-                $rowCount++;
+        DB::transaction(function () use ($payload, $import, $validated, $warnings, $rowCount) {
+            // Chunked bulk insert: one INSERT per 500 rows instead of one per
+            // row. For a 2k-line statement this goes from ~2000 round-trips
+            // to 4, and skips model events + the company global scope boot.
+            foreach (array_chunk($payload, 500) as $chunk) {
+                BankTransaction::query()->insert($chunk);
             }
 
             $import->update([
@@ -211,6 +217,10 @@ class BankController extends Controller
                 ]),
             ]);
         });
+
+        // New bank rows can be matched on the next reconcile → the "cash" /
+        // open-items counters on the dashboard need to reflect reality.
+        DashboardCache::forget($companyId);
 
         return redirect('/bank/reconcile')->with(
             'success',

@@ -2,9 +2,11 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import { Head, router } from '@inertiajs/react';
 import { useState } from 'react';
 import { Search, Shield, ShieldOff } from 'lucide-react';
+import { useNotification } from '@/Context/NotificationContext';
 
 export default function AdminUsersIndex({ users, filters = {} }) {
     const [search, setSearch] = useState(filters.search || '');
+    const { confirm } = useNotification();
 
     function submit(e) {
         e.preventDefault();
@@ -15,11 +17,16 @@ export default function AdminUsersIndex({ users, filters = {} }) {
         );
     }
 
-    function toggleAdmin(user) {
+    async function toggleAdmin(user) {
         const msg = user.is_admin
             ? `Retirer le rôle admin à ${user.email} ?`
             : `Attribuer le rôle admin à ${user.email} ?`;
-        if (!confirm(msg)) return;
+        const ok = await confirm({
+            title: 'Confirmation',
+            message: msg,
+            confirmLabel: 'Confirmer',
+        });
+        if (!ok) return;
         router.post(
             route('admin.users.toggle-admin', user.id),
             {},

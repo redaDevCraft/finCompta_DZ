@@ -18,7 +18,7 @@ class StoreInvoiceRequest extends FormRequest
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date|after_or_equal:issue_date',
             'document_type' => 'required|in:invoice,credit_note,quote,delivery_note',
-            'payment_mode' => 'nullable|string|max:50',
+            'payment_mode' => 'nullable|in:Virement bancaire,Chèque,Espèces,Effet de commerce,Carte bancaire,Chargily (E-paiement),Slickpay,Autre',
             'notes' => 'nullable|string|max:2000',
 
             'lines' => 'required|array|min:1',

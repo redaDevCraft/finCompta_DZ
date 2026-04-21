@@ -2,8 +2,10 @@
 
 use App\Http\Middleware\CheckCompanyRole;
 use App\Http\Middleware\EnsureCompanySelected;
+use App\Http\Middleware\EnsurePlanFeature;
 use App\Http\Middleware\EnsureSubscriptionActive;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\PerformanceRequestLogger;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -22,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
+            PerformanceRequestLogger::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
@@ -29,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'company' => EnsureCompanySelected::class,
             'role' => CheckCompanyRole::class,
             'subscribed' => EnsureSubscriptionActive::class,
+            'plan_feature' => EnsurePlanFeature::class,
             // Spatie (global app roles) — distinct from `role` (company pivot: owner, accountant).
             'spatie_role' => RoleMiddleware::class,
             'spatie_permission' => PermissionMiddleware::class,

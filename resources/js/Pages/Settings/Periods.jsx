@@ -2,6 +2,7 @@ import { Head, router, useForm } from '@inertiajs/react';
 import { useMemo } from 'react';
 import { Lock, Unlock, Plus } from 'lucide-react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useNotification } from '@/Context/NotificationContext';
 
 const MONTH_NAMES = [
     'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -25,6 +26,7 @@ export default function Periods({ periods }) {
         year: now.getFullYear(),
         month: now.getMonth() + 1,
     });
+    const { confirm } = useNotification();
 
     const grouped = useMemo(() => {
         const map = {};
@@ -43,13 +45,23 @@ export default function Periods({ periods }) {
         });
     };
 
-    const lock = (period) => {
-        if (!confirm(`Verrouiller la période ${MONTH_NAMES[period.month - 1]} ${period.year} ?\n\nCette action empêchera toute modification des écritures.`)) return;
+    const lock = async (period) => {
+        const ok = await confirm({
+            title: 'Verrouiller la période',
+            message: `Verrouiller la période ${MONTH_NAMES[period.month - 1]} ${period.year} ? Cette action empêchera toute modification des écritures.`,
+            confirmLabel: 'Verrouiller',
+        });
+        if (!ok) return;
         router.post(`/settings/periods/${period.id}/lock`, {}, { preserveScroll: true });
     };
 
-    const reopen = (period) => {
-        if (!confirm(`Rouvrir la période ${MONTH_NAMES[period.month - 1]} ${period.year} ?`)) return;
+    const reopen = async (period) => {
+        const ok = await confirm({
+            title: 'Rouvrir la période',
+            message: `Rouvrir la période ${MONTH_NAMES[period.month - 1]} ${period.year} ?`,
+            confirmLabel: 'Rouvrir',
+        });
+        if (!ok) return;
         router.post(`/settings/periods/${period.id}/reopen`, {}, { preserveScroll: true });
     };
 

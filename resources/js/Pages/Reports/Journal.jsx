@@ -1,6 +1,7 @@
-import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { Fragment, useState } from 'react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Fragment, useCallback, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useNotification } from '@/Context/NotificationContext';
 
 function formatMoney(value) {
     return new Intl.NumberFormat('fr-DZ', {
@@ -32,13 +33,53 @@ export default function Journal({
     journalOptions = [],
     statusOptions = [],
 }) {
-    const { flash } = usePage().props;
+    const { confirm } = useNotification();
     const [status, setStatus] = useState(filters.status ?? '');
     const [journalCode, setJournalCode] = useState(filters.journal_code ?? '');
     const [dateFrom, setDateFrom] = useState(filters.date_from ?? '');
     const [dateTo, setDateTo] = useState(filters.date_to ?? '');
     const [openEntryId, setOpenEntryId] = useState(null);
+    // Lines are fetched lazily on row expansion, not shipped with the list
+    // payload. Cache by entry id so re-opening a row is instant.
+    const [linesByEntry, setLinesByEntry] = useState({});
+    const [linesLoading, setLinesLoading] = useState({});
+    const [linesError, setLinesError] = useState({});
     const postForm = useForm({ journal_entry_id: '' });
+
+    const fetchLines = useCallback(async (entryId) => {
+        if (linesByEntry[entryId] || linesLoading[entryId]) {
+            return;
+        }
+        setLinesLoading((s) => ({ ...s, [entryId]: true }));
+        setLinesError((s) => ({ ...s, [entryId]: null }));
+        try {
+            const response = await fetch(route('ledger.entries.lines', entryId), {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const json = await response.json();
+            setLinesByEntry((s) => ({ ...s, [entryId]: json.lines || [] }));
+        } catch (err) {
+            setLinesError((s) => ({
+                ...s,
+                [entryId]: 'Impossible de charger les lignes.',
+            }));
+        } finally {
+            setLinesLoading((s) => ({ ...s, [entryId]: false }));
+        }
+    }, [linesByEntry, linesLoading]);
+
+    const toggleEntry = useCallback((entryId) => {
+        if (openEntryId === entryId) {
+            setOpenEntryId(null);
+            return;
+        }
+        setOpenEntryId(entryId);
+        fetchLines(entryId);
+    }, [openEntryId, fetchLines]);
 
     const applyFilters = (event) => {
         event.preventDefault();
@@ -93,17 +134,6 @@ export default function Journal({
                         + Nouvelle écriture
                     </Link>
                 </div>
-
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
-                {flash?.error && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        {flash.error}
-                    </div>
-                )}
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <form onSubmit={applyFilters} className="grid gap-4 md:grid-cols-5">
@@ -257,12 +287,16 @@ export default function Journal({
                                                                             </Link>
                                                                             <button
                                                                                 type="button"
-                                                                                onClick={() => {
-                                                                                    if (confirm('Supprimer cette écriture ?')) {
-                                                                                        router.delete(route('ledger.entries.destroy', entry.id), {
-                                                                                            preserveScroll: true,
-                                                                                        });
-                                                                                    }
+                                                                                onClick={async () => {
+                                                                                    const ok = await confirm({
+                                                                                        title: 'Supprimer l’écriture',
+                                                                                        message: 'Supprimer cette écriture ?',
+                                                                                        confirmLabel: 'Supprimer',
+                                                                                    });
+                                                                                    if (!ok) return;
+                                                                                    router.delete(route('ledger.entries.destroy', entry.id), {
+                                                                                        preserveScroll: true,
+                                                                                    });
                                                                                 }}
                                                                                 className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
                                                                             >
@@ -274,11 +308,7 @@ export default function Journal({
                                                             )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() =>
-                                                                    setOpenEntryId(
-                                                                        openEntryId === entry.id ? null : entry.id
-                                                                    )
-                                                                }
+                                                                onClick={() => toggleEntry(entry.id)}
                                                                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                                                             >
                                                                 Lignes
@@ -311,8 +341,26 @@ export default function Journal({
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="divide-y divide-slate-100">
-                                                                        {entry.lines?.length ? (
-                                                                            entry.lines.map((line) => (
+                                                                        {linesLoading[entry.id] ? (
+                                                                            <tr>
+                                                                                <td
+                                                                                    colSpan={5}
+                                                                                    className="px-3 py-6 text-center text-sm text-slate-500"
+                                                                                >
+                                                                                    Chargement…
+                                                                                </td>
+                                                                            </tr>
+                                                                        ) : linesError[entry.id] ? (
+                                                                            <tr>
+                                                                                <td
+                                                                                    colSpan={5}
+                                                                                    className="px-3 py-6 text-center text-sm text-rose-600"
+                                                                                >
+                                                                                    {linesError[entry.id]}
+                                                                                </td>
+                                                                            </tr>
+                                                                        ) : linesByEntry[entry.id]?.length ? (
+                                                                            linesByEntry[entry.id].map((line) => (
                                                                                 <tr key={line.id}>
                                                                                     <td className="px-3 py-2 text-sm text-slate-700">
                                                                                         {line.account

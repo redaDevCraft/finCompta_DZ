@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Payment;
+use App\Models\PaymentWebhookLog;
 use App\Models\Plan;
 use App\Services\ChargilyService;
 use App\Services\SubscriptionService;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BillingController extends Controller
 {
@@ -191,11 +193,6 @@ class BillingController extends Controller
     {
         $raw = $request->getContent();
         $signature = $request->header('signature');
-
-        if (! $chargily->verifyWebhookSignature($raw, $signature)) {
-            return response('invalid signature', 403);
-        }
-
         $data = json_decode($raw, true) ?: [];
         $event = $data['type'] ?? $data['event'] ?? null;
         $entity = $data['data'] ?? [];
@@ -209,6 +206,22 @@ class BillingController extends Controller
             $payment = Payment::query()->find($paymentId);
         } elseif ($checkoutId) {
             $payment = Payment::query()->where('checkout_id', $checkoutId)->first();
+        }
+
+        $signatureValid = $chargily->verifyWebhookSignature($raw, $signature);
+
+        PaymentWebhookLog::query()->create([
+            'gateway' => 'chargily',
+            'event_name' => is_string($event) ? $event : null,
+            'signature_header' => is_string($signature) ? $signature : null,
+            'payment_id' => $payment?->id,
+            'signature_valid' => $signatureValid,
+            'payload' => $data,
+            'received_at' => now(),
+        ]);
+
+        if (! $signatureValid) {
+            return response('invalid signature', 403);
         }
 
         if (! $payment) {
@@ -290,13 +303,13 @@ class BillingController extends Controller
         ]);
     }
 
-    public function downloadBonDeCommande(Request $request, Payment $payment): LaravelResponse
+    public function downloadBonDeCommande(Request $request, Payment $payment): BinaryFileResponse
     {
         abort_unless($payment->company_id === app('currentCompany')->id, 404);
         abort_unless($payment->bon_pdf_path && Storage::disk('local')->exists($payment->bon_pdf_path), 404);
 
-        return Storage::disk('local')->download(
-            $payment->bon_pdf_path,
+        return response()->download(
+            Storage::disk('local')->path($payment->bon_pdf_path),
             'bon-de-commande-'.$payment->reference.'.pdf'
         );
     }

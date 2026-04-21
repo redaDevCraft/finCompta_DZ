@@ -2,11 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\ExpenseListResource;
 use App\Models\Account;
 use App\Models\Contact;
 use App\Models\Expense;
 use App\Models\TaxRate;
 use App\Services\ExpenseService;
+use App\Support\ListQuery\DateRange;
+use App\Support\ListQuery\PerPage;
+use App\Support\ListQuery\SortSpec;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,41 +21,73 @@ class ExpenseController extends Controller
 {
     public function index(Request $request): Response
     {
-        $company = app('currentCompany');
-
         $search = trim((string) $request->input('search', ''));
         $status = $request->input('status');
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
 
-        $expenses = Expense::query()
-            ->where('company_id', $company->id)
-            ->with(['contact', 'account'])
-            ->when($status, fn ($q) => $q->where('status', $status))
-            ->when($dateFrom, fn ($q) => $q->whereDate('expense_date', '>=', $dateFrom))
-            ->when($dateTo, fn ($q) => $q->whereDate('expense_date', '<=', $dateTo))
-            ->when($search !== '', function ($q) use ($search) {
-                $q->where(function ($sub) use ($search) {
-                    $sub->where('reference', 'ilike', "%{$search}%")
-                        ->orWhere('description', 'ilike', "%{$search}%")
-                        ->orWhereHas('contact', function ($c) use ($search) {
-                            $c->where('display_name', 'ilike', "%{$search}%")
-                                ->orWhere('raison_sociale', 'ilike', "%{$search}%");
-                        });
-                });
-            })
-            ->orderByDesc('expense_date')
-            ->orderByDesc('created_at')
-            ->paginate(20)
-            ->withQueryString();
+        $sort = new SortSpec(
+            allowed: ['expense_date', 'due_date', 'total_ttc', 'status', 'created_at'],
+            default: [['expense_date', 'desc'], ['created_at', 'desc']],
+            tiebreaker: 'id',
+        );
+        $orders = $sort->resolve($request);
+
+        $query = Expense::query()
+            ->select([
+                'id',
+                'company_id',
+                'contact_id',
+                'account_id',
+                'reference',
+                'description',
+                'status',
+                'expense_date',
+                'due_date',
+                'total_ht',
+                'total_vat',
+                'total_ttc',
+                'created_at',
+            ])
+            ->with([
+                'contact:id,display_name',
+                'account:id,code,label',
+            ])
+            ->when($status, fn ($q) => $q->where('status', $status));
+
+        DateRange::apply($query, $dateFrom, $dateTo, 'expense_date');
+
+        if ($search !== '') {
+            $needle = $search.'%';
+            $query->where(function ($sub) use ($needle, $search) {
+                $sub->where('reference', 'ilike', $needle)
+                    ->orWhereHas('contact', function ($c) use ($needle) {
+                        $c->where('display_name', 'ilike', $needle)
+                            ->orWhere('raison_sociale', 'ilike', $needle);
+                    });
+
+                if (mb_strlen($search) >= 4) {
+                    $sub->orWhere('description', 'ilike', '%'.$search.'%');
+                }
+            });
+        }
+
+        $sort->apply($query, $orders);
+
+        // Cursor pagination — see InvoiceController::index for the rationale.
+        $paginator = $query
+            ->cursorPaginate(PerPage::resolve($request))
+            ->withQueryString()
+            ->through(fn (Expense $expense) => (new ExpenseListResource($expense))->toArray($request));
 
         return Inertia::render('Expenses/Index', [
-            'expenses' => $expenses,
+            'expenses' => $paginator,
             'filters' => [
                 'search' => $search,
                 'status' => $status,
                 'date_from' => $dateFrom,
                 'date_to' => $dateTo,
+                'sort' => $request->input('sort'),
             ],
         ]);
     }
@@ -60,13 +96,9 @@ class ExpenseController extends Controller
     {
         $company = app('currentCompany');
 
-        $contacts = Contact::query()
-            ->where('company_id', $company->id)
-            ->where('is_active', true)
-            ->whereIn('type', ['supplier', 'both'])
-            ->orderBy('display_name')
-            ->get();
-
+        // Contacts are fetched on demand via /suggest/contacts — no full list
+        // shipped on page load. Tax rates and class-6 accounts are small,
+        // bounded sets and stay inlined.
         $taxRates = TaxRate::query()
             ->where(function ($query) use ($company) {
                 $query->where('company_id', $company->id)
@@ -81,7 +113,7 @@ class ExpenseController extends Controller
             ->where('is_active', true)
             ->where('class', 6)
             ->orderBy('code')
-            ->get();
+            ->get(['id', 'code', 'label', 'class']);
 
         $prefill = [
             'source_document_id' => $request->query('from_document'),
@@ -98,11 +130,23 @@ class ExpenseController extends Controller
             'contact_id' => $request->query('contact_id'),
         ];
 
+        // If this form is opened from an OCR document with a preselected
+        // supplier, resolve its display name once so the AsyncCombobox
+        // renders with a readable label instead of a UUID. Point-read on
+        // the PK, negligible cost.
+        $prefillContact = null;
+        if (! empty($prefill['contact_id'])) {
+            $prefillContact = Contact::query()
+                ->where('company_id', $company->id)
+                ->where('id', $prefill['contact_id'])
+                ->first(['id', 'display_name', 'type']);
+        }
+
         return Inertia::render('Expenses/Create', [
-            'contacts' => $contacts,
             'taxRates' => $taxRates,
             'accounts' => $accounts,
             'prefill' => array_filter($prefill, fn ($v) => $v !== null && $v !== ''),
+            'prefillContact' => $prefillContact,
         ]);
     }
 

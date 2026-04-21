@@ -1,7 +1,8 @@
-import { Head, useForm } from '@inertiajs/react';
-import { useMemo } from 'react';
+import { Head, router, useForm } from '@inertiajs/react';
+import { useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Alert from '@/Components/UI/Alert';
+import AsyncCombobox from '@/Components/UI/AsyncCombobox';
 
 const formatCurrency = (value) =>
     new Intl.NumberFormat('fr-DZ', {
@@ -9,25 +10,23 @@ const formatCurrency = (value) =>
         currency: 'DZD',
     }).format(Number(value ?? 0));
 
-function ContactSelector({ contacts, value, onChange, error }) {
+function ContactSelector({ value, prefill, onChange, error }) {
     return (
         <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
                 Client
             </label>
 
-            <select
+            <AsyncCombobox
+                endpoint="/suggest/contacts"
                 value={value}
-                onChange={(e) => onChange(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            >
-                <option value="">Sélectionner un client</option>
-                {contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                        {contact.display_name}
-                    </option>
-                ))}
-            </select>
+                prefill={prefill}
+                onChange={(id, option) => onChange(id || '', option)}
+                getLabel={(c) => c.display_name}
+                placeholder="Rechercher un client…"
+                extraParams={{ type: 'client' }}
+                ariaLabel="Client"
+            />
 
             {error ? <p className="mt-1 text-sm text-red-600">{error}</p> : null}
         </div>
@@ -35,11 +34,22 @@ function ContactSelector({ contacts, value, onChange, error }) {
 }
 
 function InvoiceMeta({ data, setData, errors }) {
+    const paymentModes = [
+        'Virement bancaire',
+        'Chèque',
+        'Espèces',
+        'Effet de commerce',
+        'Carte bancaire',
+        'Chargily (E-paiement)',
+        'Slickpay',
+        'Autre',
+    ];
+
     return (
         <div className="grid gap-4 md:grid-cols-2">
             <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Date d'émission
+                    Date d'émission *
                 </label>
                 <input
                     type="date"
@@ -54,7 +64,7 @@ function InvoiceMeta({ data, setData, errors }) {
 
             <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Date d'échéance
+                    Date d'échéance *
                 </label>
                 <input
                     type="date"
@@ -69,7 +79,7 @@ function InvoiceMeta({ data, setData, errors }) {
 
             <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Type de document
+                    Type de document *
                 </label>
                 <select
                     value={data.document_type}
@@ -88,15 +98,19 @@ function InvoiceMeta({ data, setData, errors }) {
 
             <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Mode de paiement
+                    Mode de paiement *
                 </label>
-                <input
-                    type="text"
+                <select
                     value={data.payment_mode}
                     onChange={(e) => setData('payment_mode', e.target.value)}
-                    placeholder="Virement, chèque, espèces..."
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                />
+                >
+                    {paymentModes.map((mode) => (
+                        <option key={mode} value={mode}>
+                            {mode}
+                        </option>
+                    ))}
+                </select>
                 {errors.payment_mode ? (
                     <p className="mt-1 text-sm text-red-600">{errors.payment_mode}</p>
                 ) : null}
@@ -421,13 +435,17 @@ function InvoiceTotals({ computedLines }) {
     );
 }
 
-export default function Create({ contacts = [], taxRates = [], accounts = [] }) {
+export default function Create({ taxRates = [], accounts = [] }) {
+    const [contactPrefill, setContactPrefill] = useState(null);
+
+    const duePlus30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
     const { data, setData, post, processing, errors } = useForm({
         contact_id: '',
         issue_date: new Date().toISOString().split('T')[0],
-        due_date: '',
+        due_date: duePlus30,
         document_type: 'invoice',
-        payment_mode: '',
+        payment_mode: 'Virement bancaire',
         notes: '',
         lines: [
             {
@@ -508,9 +526,12 @@ export default function Create({ contacts = [], taxRates = [], accounts = [] }) 
                                 Client
                             </h3>
                             <ContactSelector
-                                contacts={contacts}
                                 value={data.contact_id}
-                                onChange={(value) => setData('contact_id', value)}
+                                prefill={contactPrefill}
+                                onChange={(id, option) => {
+                                    setData('contact_id', id);
+                                    setContactPrefill(option ?? null);
+                                }}
                                 error={errors.contact_id}
                             />
                         </div>

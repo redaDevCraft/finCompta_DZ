@@ -2,128 +2,55 @@
 
 namespace App\Http\Controllers;
 
-use App\Exports\VatReportExport;
 use App\Models\Account;
-use App\Models\ExpenseLine;
-use App\Models\InvoiceVatBucket;
+use App\Models\ReportRun;
 use App\Services\AgedBalanceService;
 use App\Services\BilanService;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\Reports\ReportRunService;
+use App\Services\VatReportService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
-use Maatwebsite\Excel\Facades\Excel;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class ReportController extends Controller
 {
-    public function vat(Request $request): Response
-    {
-        $data = $this->buildVatReportData($request);
-
-        return Inertia::render('Reports/Vat', $data);
-    }
-
-    public function vatExport(Request $request): BinaryFileResponse
-    {
-        $data = $this->buildVatReportData($request);
-
-        $year = $data['period']['year'];
-        $month = $data['period']['month'];
-
-        $suffix = $month
-            ? sprintf('%s_%02d', $year, $month)
-            : sprintf('%s_Q%s', $year, $data['period']['quarter']);
-
-        return Excel::download(
-            new VatReportExport($data),
-            "TVA_{$suffix}.xlsx"
-        );
-    }
-
-    protected function buildVatReportData(Request $request): array
+    public function vat(Request $request, VatReportService $vatReportService): Response
     {
         $companyId = app('currentCompany')->id;
         $year = (int) ($request->input('year', now()->year));
         $month = $request->filled('month') ? (int) $request->input('month') : null;
         $quarter = $request->filled('quarter') ? (int) $request->input('quarter') : null;
 
-        $salesQuery = InvoiceVatBucket::query()
-            ->selectRaw('invoice_vat_buckets.rate_pct as rate_pct, SUM(invoice_vat_buckets.base_ht) as base_ht, SUM(invoice_vat_buckets.vat_amount) as vat_amount')
-            ->join('invoices', 'invoices.id', '=', 'invoice_vat_buckets.invoice_id')
-            ->where('invoices.company_id', $companyId)
-            ->whereIn('invoices.status', ['issued', 'partially_paid', 'paid'])
-            ->whereYear('invoices.issue_date', $year);
+        $data = $vatReportService->buildForCompany($companyId, $year, $month, $quarter);
 
-        $purchaseQuery = ExpenseLine::query()
-            ->selectRaw('expense_lines.vat_rate_pct as rate_pct, SUM(expense_lines.amount_ht) as base_ht, SUM(expense_lines.amount_vat) as vat_amount')
-            ->join('expenses', 'expenses.id', '=', 'expense_lines.expense_id')
-            ->where('expenses.company_id', $companyId)
-            ->whereIn('expenses.status', ['confirmed', 'paid'])
-            ->whereYear('expenses.expense_date', $year);
+        return Inertia::render('Reports/Vat', $data);
+    }
 
-        if ($month) {
-            $salesQuery->whereMonth('invoices.issue_date', $month);
-            $purchaseQuery->whereMonth('expenses.expense_date', $month);
-        } elseif ($quarter) {
-            $months = match ($quarter) {
-                1 => [1, 2, 3],
-                2 => [4, 5, 6],
-                3 => [7, 8, 9],
-                4 => [10, 11, 12],
-                default => [now()->month],
-            };
+    /**
+     * Queue TVA XLSX export — same pattern as bilan PDF (Phase 6).
+     */
+    public function queueVatExport(Request $request, ReportRunService $runs): RedirectResponse
+    {
+        $company = app('currentCompany');
+        $year = (int) $request->input('year', now()->year);
+        $month = $request->filled('month') ? (int) $request->input('month') : null;
+        $quarter = $request->filled('quarter') ? (int) $request->input('quarter') : null;
 
-            $salesQuery->whereIn(DB::raw('EXTRACT(MONTH FROM invoices.issue_date)'), $months);
-            $purchaseQuery->whereIn(DB::raw('EXTRACT(MONTH FROM expenses.expense_date)'), $months);
-        } else {
-            $month = now()->month;
-            $salesQuery->whereMonth('invoices.issue_date', $month);
-            $purchaseQuery->whereMonth('expenses.expense_date', $month);
-        }
-
-        $salesVatBuckets = $salesQuery
-            ->groupBy('invoice_vat_buckets.rate_pct')
-            ->orderBy('rate_pct')
-            ->get()
-            ->map(fn ($row) => [
-                'rate_pct' => (float) $row->rate_pct,
-                'base_ht' => (float) $row->base_ht,
-                'vat_amount' => (float) $row->vat_amount,
-            ])
-            ->values();
-
-        $purchaseVat = $purchaseQuery
-            ->groupBy('expense_lines.vat_rate_pct')
-            ->orderBy('rate_pct')
-            ->get()
-            ->map(fn ($row) => [
-                'rate_pct' => (float) $row->rate_pct,
-                'base_ht' => (float) $row->base_ht,
-                'vat_amount' => (float) $row->vat_amount,
-            ])
-            ->values();
-
-        $totalCollected = round($salesVatBuckets->sum('vat_amount'), 2);
-        $totalDeductible = round($purchaseVat->sum('vat_amount'), 2);
-        $balance = round($totalCollected - $totalDeductible, 2);
-
-        return [
-            'period' => [
+        $runs->queue(
+            companyId: $company->id,
+            user: $request->user(),
+            type: ReportRun::TYPE_VAT_XLSX,
+            params: [
                 'year' => $year,
                 'month' => $month,
                 'quarter' => $quarter,
             ],
-            'sales_vat_buckets' => $salesVatBuckets,
-            'purchase_vat' => $purchaseVat,
-            'totals' => [
-                'collected' => $totalCollected,
-                'deductible' => $totalDeductible,
-                'balance' => $balance,
-            ],
-        ];
+        );
+
+        return redirect()
+            ->route('reports.runs.index')
+            ->with('success', 'Génération de l’export TVA (Excel) en cours — il apparaîtra dans « Mes exports » dès que le worker aura terminé.');
     }
 
     public function bilan(Request $request, BilanService $service): Response
@@ -136,17 +63,30 @@ class ReportController extends Controller
         return Inertia::render('Reports/Bilan', $bilan);
     }
 
-    public function bilanPdf(Request $request, BilanService $service): HttpResponse
+    /**
+     * Queue a bilan PDF render for async generation.
+     *
+     * Previously this method ran BilanService::compute + Dompdf inline on
+     * the HTTP thread, which at scale exceeded request timeouts and
+     * burned worker memory. It now enqueues a GenerateBilanPdfJob on the
+     * reports queue and redirects the user to the exports page, where
+     * the artifact appears once the worker finishes.
+     */
+    public function queueBilanPdf(Request $request, ReportRunService $runs): RedirectResponse
     {
         $company = app('currentCompany');
         $asOf = $request->input('as_of_date', now()->endOfYear()->toDateString());
 
-        $bilan = $service->compute($company, $asOf);
+        $runs->queue(
+            companyId: $company->id,
+            user: $request->user(),
+            type: ReportRun::TYPE_BILAN_PDF,
+            params: ['as_of_date' => $asOf],
+        );
 
-        $pdf = Pdf::loadView('pdf.bilan', ['bilan' => $bilan])
-            ->setPaper('a4');
-
-        return $pdf->download("bilan_{$asOf}.pdf");
+        return redirect()
+            ->route('reports.runs.index')
+            ->with('success', 'Génération du bilan PDF en cours — il apparaîtra ici dès que le worker aura terminé.');
     }
 
     public function agedReceivables(Request $request, AgedBalanceService $service): Response

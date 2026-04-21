@@ -68,6 +68,22 @@ class SettingsController extends Controller
         return back()->with('success', 'Paramètres de l’entreprise mis à jour.');
     }
 
+    /**
+     * Observability budgets (Phase 0) — surfaced for operators without
+     * reading raw env files. Log output still lands in storage/logs.
+     */
+    public function performance(): Response
+    {
+        return Inertia::render('Settings/Performance', [
+            'perf' => [
+                'enabled' => (bool) config('performance.enabled'),
+                'slow_query_ms' => (int) config('performance.slow_query_ms'),
+                'slow_request_ms' => (int) config('performance.slow_request_ms'),
+                'log_path' => storage_path('logs/performance.log'),
+            ],
+        ]);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Chart of accounts (read-only view)

@@ -2,6 +2,7 @@ import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Eye, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useNotification } from '@/Context/NotificationContext';
 
 const TYPE_LABELS = {
     client: 'Client',
@@ -241,10 +242,18 @@ function ContactForm({ initial, onClose, isEdit }) {
 }
 
 export default function Index({ contacts, filters = {} }) {
-    const { flash, errors } = usePage().props;
-    const [modalOpen, setModalOpen] = useState(false);
+    const page = usePage();
+    const { errors } = page.props;
+    const query = new URLSearchParams((page.url.split('?')[1] ?? ''));
+    const requestedType = query.get('type');
+    const defaultCreateType = ['client', 'supplier', 'both'].includes(requestedType ?? '')
+        ? requestedType
+        : 'client';
+    const [modalOpen, setModalOpen] = useState(query.get('create') === '1');
     const [editing, setEditing] = useState(null);
+    const [createType, setCreateType] = useState(defaultCreateType);
     const [type, setType] = useState(filters.type ?? '');
+    const { confirm } = useNotification();
 
     const applyFilter = (value) => {
         setType(value);
@@ -255,7 +264,8 @@ export default function Index({ contacts, filters = {} }) {
         );
     };
 
-    const openCreate = () => {
+    const openCreate = (preferredType = 'client') => {
+        setCreateType(preferredType);
         setEditing(null);
         setModalOpen(true);
     };
@@ -265,8 +275,13 @@ export default function Index({ contacts, filters = {} }) {
         setModalOpen(true);
     };
 
-    const deleteContact = (contact) => {
-        if (!confirm(`Supprimer le contact « ${contact.display_name} » ?`)) return;
+    const deleteContact = async (contact) => {
+        const ok = await confirm({
+            title: 'Supprimer le contact',
+            message: `Supprimer le contact « ${contact.display_name} » ?`,
+            confirmLabel: 'Supprimer',
+        });
+        if (!ok) return;
         router.delete(`/contacts/${contact.id}`, { preserveScroll: true });
     };
 
@@ -284,7 +299,7 @@ export default function Index({ contacts, filters = {} }) {
                     </div>
                     <button
                         type="button"
-                        onClick={openCreate}
+                        onClick={() => openCreate('client')}
                         className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
                     >
                         <Plus className="h-4 w-4" />
@@ -292,11 +307,6 @@ export default function Index({ contacts, filters = {} }) {
                     </button>
                 </div>
 
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
                 {errors?.delete && (
                     <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                         {errors.delete}
@@ -436,7 +446,7 @@ export default function Index({ contacts, filters = {} }) {
 
             {modalOpen && (
                 <ContactForm
-                    initial={editing}
+                    initial={editing ?? { ...emptyForm(), type: createType }}
                     isEdit={Boolean(editing)}
                     onClose={() => setModalOpen(false)}
                 />

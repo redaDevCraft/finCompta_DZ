@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Account;
 use App\Models\Company;
-use App\Models\Contact;
 use App\Models\Journal;
 use App\Models\JournalEntry;
 use App\Services\JournalService;
+use App\Support\Cache\DashboardCache;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +27,9 @@ class JournalEntryController extends Controller
     {
         $company = app('currentCompany');
 
+        // New entry: no preselected accounts/contacts. Journals are typically
+        // under a dozen and are the entry-point of the form, so we keep them
+        // eager. Account + contact pickers use /suggest/* async lookups.
         return Inertia::render('Ledger/Entries/Create', [
             'form' => [
                 'entry_date' => $request->query('entry_date', now()->toDateString()),
@@ -39,8 +42,8 @@ class JournalEntryController extends Controller
                 ],
             ],
             'journals' => $this->loadJournals($company),
-            'accounts' => $this->loadAccounts($company),
-            'contacts' => $this->loadContacts($company),
+            'prefillAccounts' => [],
+            'prefillContacts' => [],
         ]);
     }
 
@@ -103,6 +106,12 @@ class JournalEntryController extends Controller
             $journalService->post($entry->fresh('lines'), $request->user());
         }
 
+        // New journal entry → recent entries list, class-6/7 aggregates,
+        // account balances all shift. Only posted entries affect KPIs, but
+        // we forget unconditionally: the cost is a single INCR, and keeping
+        // the rule simple avoids drift between branches.
+        DashboardCache::forget($company->id);
+
         return redirect()
             ->route('ledger.journal')
             ->with('success', 'Écriture enregistrée.');
@@ -116,7 +125,27 @@ class JournalEntryController extends Controller
 
         $company = app('currentCompany');
 
-        $entry->load(['lines.account', 'lines.contact', 'journal']);
+        $entry->load(['lines.account:id,code,label', 'lines.contact:id,display_name,type', 'journal']);
+
+        // Prefill maps: only the accounts and contacts actually referenced by
+        // this draft's lines. That's at most ~2*N rows where N = line count,
+        // versus the tens of thousands of rows a large tenant has in total.
+        // The AsyncCombobox consumes these as initial `prefill` values so
+        // the user sees the selected items immediately, then hits
+        // /suggest/* only when they open the picker.
+        $prefillAccounts = $entry->lines
+            ->pluck('account')
+            ->filter()
+            ->unique('id')
+            ->map(fn ($a) => ['id' => $a->id, 'code' => $a->code, 'label' => $a->label])
+            ->values();
+
+        $prefillContacts = $entry->lines
+            ->pluck('contact')
+            ->filter()
+            ->unique('id')
+            ->map(fn ($c) => ['id' => $c->id, 'display_name' => $c->display_name, 'type' => $c->type])
+            ->values();
 
         return Inertia::render('Ledger/Entries/Create', [
             'form' => [
@@ -137,8 +166,8 @@ class JournalEntryController extends Controller
                 })->values(),
             ],
             'journals' => $this->loadJournals($company),
-            'accounts' => $this->loadAccounts($company),
-            'contacts' => $this->loadContacts($company),
+            'prefillAccounts' => $prefillAccounts,
+            'prefillContacts' => $prefillContacts,
             'isEdit' => true,
         ]);
     }
@@ -195,9 +224,52 @@ class JournalEntryController extends Controller
             }
         });
 
+        DashboardCache::forget($company->id);
+
         return redirect()
             ->route('ledger.journal')
             ->with('success', 'Écriture mise à jour.');
+    }
+
+    /**
+     * Return the lines for a single journal entry as JSON.
+     *
+     * Used by the journal index page to lazy-load line details when a user
+     * expands a row. Keeps the list endpoint payload small (only aggregate
+     * totals) while still allowing drill-down on demand.
+     */
+    public function lines(JournalEntry $entry): JsonResponse
+    {
+        $this->authorizeEntry($entry);
+
+        $entry->load([
+            'lines' => function ($query) {
+                $query->with([
+                    'account:id,code,label',
+                    'contact:id,display_name',
+                ])->orderBy('sort_order');
+            },
+        ]);
+
+        return response()->json([
+            'entry_id' => $entry->id,
+            'lines' => $entry->lines->map(fn ($line) => [
+                'id' => $line->id,
+                'description' => $line->description,
+                'debit' => (float) $line->debit,
+                'credit' => (float) $line->credit,
+                'sort_order' => $line->sort_order,
+                'account' => $line->account ? [
+                    'id' => $line->account->id,
+                    'code' => $line->account->code,
+                    'label' => $line->account->label,
+                ] : null,
+                'contact' => $line->contact ? [
+                    'id' => $line->contact->id,
+                    'display_name' => $line->contact->display_name,
+                ] : null,
+            ])->values(),
+        ]);
     }
 
     public function destroy(JournalEntry $entry): RedirectResponse
@@ -211,6 +283,8 @@ class JournalEntryController extends Controller
             $entry->lines()->delete();
             $entry->delete();
         });
+
+        DashboardCache::forget($entry->company_id);
 
         return redirect()
             ->route('ledger.journal')
@@ -236,26 +310,6 @@ class JournalEntryController extends Controller
             ->orderBy('position')
             ->orderBy('code')
             ->get(['id', 'code', 'label', 'type', 'counterpart_account_id'])
-            ->toArray();
-    }
-
-    private function loadAccounts(Company $company): array
-    {
-        return Account::withoutGlobalScopes()
-            ->where('company_id', $company->id)
-            ->where('is_active', true)
-            ->orderBy('code')
-            ->get(['id', 'code', 'label', 'class', 'type'])
-            ->toArray();
-    }
-
-    private function loadContacts(Company $company): array
-    {
-        return Contact::withoutGlobalScopes()
-            ->where('company_id', $company->id)
-            ->where('is_active', true)
-            ->orderBy('display_name')
-            ->get(['id', 'display_name', 'type'])
             ->toArray();
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\PlanFeatureService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 use Tighten\Ziggy\Ziggy;
@@ -72,6 +73,16 @@ class HandleInertiaRequests extends Middleware
                         'name' => $sub->plan->name,
                     ] : null,
                 ];
+            },
+            'allowed_features' => function () use ($request) {
+                if (! $request->user() || ! app()->has('currentCompany')) {
+                    return [];
+                }
+
+                /** @var PlanFeatureService $service */
+                $service = app(PlanFeatureService::class);
+
+                return $service->allowedFeaturesForCompany(app('currentCompany'));
             },
             'ziggy' => fn () => [
                 ...(new Ziggy)->toArray(),

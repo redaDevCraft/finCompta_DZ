@@ -2,20 +2,32 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import { Head, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import { Check, X } from 'lucide-react';
+import { useNotification } from '@/Context/NotificationContext';
 
 export default function AdminPaymentsIndex({ payments }) {
     const { props } = usePage();
     const errors = props.errors ?? {};
+    const { confirm } = useNotification();
 
     const [rejectReason, setRejectReason] = useState('');
 
-    function confirmPayment(id) {
-        if (!confirm('Marquer ce paiement comme payé et activer / prolonger l’abonnement ?')) return;
+    async function confirmPayment(id) {
+        const ok = await confirm({
+            title: 'Confirmer le paiement',
+            message: 'Marquer ce paiement comme payé et activer / prolonger l’abonnement ?',
+            confirmLabel: 'Oui, confirmer',
+        });
+        if (!ok) return;
         router.post(route('admin.payments.confirm', id), {}, { preserveScroll: true });
     }
 
-    function rejectPayment(id) {
-        if (!confirm('Rejeter ce paiement ?')) return;
+    async function rejectPayment(id) {
+        const ok = await confirm({
+            title: 'Rejeter le paiement',
+            message: 'Voulez-vous vraiment rejeter ce paiement ?',
+            confirmLabel: 'Oui, rejeter',
+        });
+        if (!ok) return;
         router.post(
             route('admin.payments.reject', id),
             { reason: rejectReason },

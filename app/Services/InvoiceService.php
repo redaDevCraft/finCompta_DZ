@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceSequence;
 use App\Models\JournalEntry;
 use App\Models\User;
+use App\Support\Cache\DashboardCache;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -89,7 +90,10 @@ class InvoiceService
         }
 
         DB::transaction(function () use ($invoice, $company, $user) {
-            $number = $this->assignSequenceNumber($invoice);
+            $number = $invoice->invoice_number;
+            if ($number === null || $number === '') {
+                $number = $this->assignSequenceNumber($invoice);
+            }
 
             $invoice->client_snapshot = $invoice->contact?->toArray();
 
@@ -105,11 +109,19 @@ class InvoiceService
 
             $this->journal->draftSalesEntry($invoice, $company);
 
-            GenerateInvoicePdf::dispatch($invoice->id)->onQueue('pdf');
+            // afterCommit(): the worker must not see the invoice row before
+            // the surrounding DB::transaction commits. Without this, a fast
+            // worker can race into findOrFail() and fail.
+            GenerateInvoicePdf::dispatch($invoice->id)
+                ->onQueue('pdf')
+                ->afterCommit();
         });
 
         $invoice->refresh();
         $invoice->load('contact');
+
+        // Issued invoice changes AR, revenue YTD/MTD, top debtors, series.
+        DashboardCache::forget($company->id);
 
         return [
             'success' => true,
@@ -160,6 +172,9 @@ class InvoiceService
                 'status' => 'voided',
             ]);
         });
+
+        // Voiding reverses the journal entry → shifts AR, revenue, result.
+        DashboardCache::forget($company->id);
     }
 
     public function createCreditNote(Invoice $originalInvoice, Company $company, User $user): Invoice
@@ -224,7 +239,7 @@ class InvoiceService
     protected function assignSequenceNumberOnce(Invoice $invoice): string
     {
         return DB::transaction(function () use ($invoice) {
-            $year = (int) $invoice->issue_date->format('Y');
+            $year = (int) date('Y', strtotime((string) $invoice->issue_date));
 
             $sequence = InvoiceSequence::query()
                 ->where('company_id', $invoice->company_id)

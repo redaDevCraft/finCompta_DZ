@@ -8,6 +8,7 @@ import {
     Download,
     FileText,
 } from 'lucide-react';
+import { useNotification } from '@/Context/NotificationContext';
 
 const formatCurrency = (value, currency = 'DZD') =>
     new Intl.NumberFormat('fr-DZ', {
@@ -48,7 +49,8 @@ function statusBadge(status) {
 }
 
 export default function Show({ expense }) {
-    const { flash, errors } = usePage().props;
+    const { errors } = usePage().props;
+    const { confirm } = useNotification();
 
     if (!expense) {
         return (
@@ -63,8 +65,13 @@ export default function Show({ expense }) {
 
     const isDraft = expense.status === 'draft';
 
-    const confirmExpense = () => {
-        if (!confirm('Confirmer cette dépense et générer l’écriture comptable ?')) return;
+    const confirmExpense = async () => {
+        const ok = await confirm({
+            title: 'Confirmer la dépense',
+            message: 'Confirmer cette dépense et générer l’écriture comptable ?',
+            confirmLabel: 'Confirmer',
+        });
+        if (!ok) return;
         router.post(`/expenses/${expense.id}/confirm`, {}, { preserveScroll: true });
     };
 
@@ -108,16 +115,6 @@ export default function Show({ expense }) {
                     </div>
                 </div>
 
-                {flash?.success && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                        {flash.success}
-                    </div>
-                )}
-                {flash?.error && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                        {flash.error}
-                    </div>
-                )}
                 {errors && Object.keys(errors).length > 0 && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                         <div className="flex items-center gap-2 font-medium">

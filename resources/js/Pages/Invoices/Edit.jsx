@@ -1,32 +1,44 @@
 import { Head, useForm, Link } from '@inertiajs/react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Alert from '@/Components/UI/Alert';
+import AsyncCombobox from '@/Components/UI/AsyncCombobox';
 import { ArrowLeft } from 'lucide-react';
 
 const formatCurrency = (value) =>
     new Intl.NumberFormat('fr-DZ', { style: 'currency', currency: 'DZD' }).format(Number(value ?? 0));
 
-function ContactSelector({ contacts, value, onChange, error }) {
+function ContactSelector({ value, prefill, onChange, error }) {
     return (
         <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Client</label>
-            <select
+            <AsyncCombobox
+                endpoint="/suggest/contacts"
                 value={value}
-                onChange={(e) => onChange(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-                <option value="">Sélectionner un client</option>
-                {contacts.map((c) => (
-                    <option key={c.id} value={c.id}>{c.display_name}</option>
-                ))}
-            </select>
+                prefill={prefill}
+                onChange={(id, option) => onChange(id || '', option)}
+                getLabel={(c) => c.display_name}
+                placeholder="Rechercher un client…"
+                extraParams={{ type: 'client' }}
+                ariaLabel="Client"
+            />
             {error ? <p className="mt-1 text-sm text-red-600">{error}</p> : null}
         </div>
     );
 }
 
 function InvoiceMeta({ data, setData, errors }) {
+    const paymentModes = [
+        'Virement bancaire',
+        'Chèque',
+        'Espèces',
+        'Effet de commerce',
+        'Carte bancaire',
+        'Chargily (E-paiement)',
+        'Slickpay',
+        'Autre',
+    ];
+
     return (
         <div className="grid gap-4 md:grid-cols-2">
             <div>
@@ -53,9 +65,17 @@ function InvoiceMeta({ data, setData, errors }) {
             </div>
             <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Mode de paiement</label>
-                <input type="text" value={data.payment_mode ?? ''} onChange={(e) => setData('payment_mode', e.target.value)}
-                    placeholder="Virement, chèque, espèces..."
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                <select
+                    value={data.payment_mode ?? 'Virement bancaire'}
+                    onChange={(e) => setData('payment_mode', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                    {paymentModes.map((mode) => (
+                        <option key={mode} value={mode}>
+                            {mode}
+                        </option>
+                    ))}
+                </select>
             </div>
             <div className="md:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
@@ -134,7 +154,8 @@ function LineTable({ lines, computed, taxRates, accounts, setData, errors }) {
     );
 }
 
-export default function Edit({ invoice, contacts = [], taxRates = [], accounts = [] }) {
+export default function Edit({ invoice, taxRates = [], accounts = [], prefillContact = null }) {
+    const [contactPrefill, setContactPrefill] = useState(prefillContact);
     const initialLines = (invoice.lines?.length ? invoice.lines : [{}]).map((l) => ({
         id: l.id ?? null,
         designation: l.designation ?? '',
@@ -190,7 +211,15 @@ export default function Edit({ invoice, contacts = [], taxRates = [], accounts =
                     <div className="space-y-6 xl:col-span-2">
                         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                             <h3 className="mb-4 text-base font-semibold">Client</h3>
-                            <ContactSelector contacts={contacts} value={data.contact_id} onChange={(v) => setData('contact_id', v)} error={errors.contact_id} />
+                            <ContactSelector
+                                value={data.contact_id}
+                                prefill={contactPrefill}
+                                onChange={(id, option) => {
+                                    setData('contact_id', id);
+                                    setContactPrefill(option ?? null);
+                                }}
+                                error={errors.contact_id}
+                            />
                         </div>
                         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                             <h3 className="mb-4 text-base font-semibold">Informations</h3>

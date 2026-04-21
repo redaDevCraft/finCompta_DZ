@@ -2,11 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\JournalEntryListResource;
 use App\Models\Account;
 use App\Models\Journal;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Services\JournalService;
+use App\Support\ListQuery\DateRange;
+use App\Support\ListQuery\PerPage;
+use App\Support\ListQuery\SortSpec;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,78 +23,53 @@ class LedgerController extends Controller
     {
         $company = app('currentCompany');
 
-        $entries = JournalEntry::query()
-            ->with([
-                'period:id,year,month,status',
-                'lines' => function ($query) {
-                    $query->with([
-                        'account:id,code,label',
-                        'contact:id,display_name',
-                    ])->orderBy('sort_order');
-                },
+        $sort = new SortSpec(
+            allowed: ['entry_date', 'journal_code', 'status', 'created_at'],
+            default: [['entry_date', 'desc'], ['created_at', 'desc']],
+            tiebreaker: 'id',
+        );
+        $orders = $sort->resolve($request);
+
+        $query = JournalEntry::query()
+            ->select([
+                'id',
+                'company_id',
+                'period_id',
+                'entry_date',
+                'journal_code',
+                'reference',
+                'description',
+                'status',
+                'source_type',
+                'source_id',
+                'posted_at',
+                'created_at',
             ])
-            ->where('company_id', $company->id)
+            // Totals are computed as aggregate sub-selects rather than loading
+            // every line row into PHP. Same result, one scalar per row.
+            ->withSum('lines as total_debit', 'debit')
+            ->withSum('lines as total_credit', 'credit')
+            ->with(['period:id,year,month,status'])
             ->when($request->filled('status'), function ($query) use ($request) {
                 $query->where('status', $request->string('status')->toString());
             })
             ->when($request->filled('journal_code'), function ($query) use ($request) {
                 $query->where('journal_code', $request->string('journal_code')->toString());
-            })
-            ->when($request->filled('date_from'), function ($query) use ($request) {
-                $query->whereDate('entry_date', '>=', $request->string('date_from')->toString());
-            })
-            ->when($request->filled('date_to'), function ($query) use ($request) {
-                $query->whereDate('entry_date', '<=', $request->string('date_to')->toString());
-            })
-            ->orderByDesc('entry_date')
-            ->orderByDesc('created_at')
-            ->paginate(20)
-            ->withQueryString()
-            ->through(function (JournalEntry $entry) {
-                $totalDebit = (float) $entry->lines->sum('debit');
-                $totalCredit = (float) $entry->lines->sum('credit');
-
-                return [
-                    'id' => $entry->id,
-                    'entry_date' => optional($entry->entry_date)?->toDateString(),
-                    'journal_code' => $entry->journal_code,
-                    'reference' => $entry->reference,
-                    'description' => $entry->description,
-                    'status' => $entry->status,
-                    'source_type' => $entry->source_type,
-                    'source_id' => $entry->source_id,
-                    'posted_at' => optional($entry->posted_at)?->toDateTimeString(),
-                    'period' => $entry->period ? [
-                        'id' => $entry->period->id,
-                        'year' => $entry->period->year,
-                        'month' => $entry->period->month,
-                        'status' => $entry->period->status,
-                    ] : null,
-                    'lines' => $entry->lines->map(function ($line) {
-                        return [
-                            'id' => $line->id,
-                            'description' => $line->description,
-                            'debit' => (float) $line->debit,
-                            'credit' => (float) $line->credit,
-                            'sort_order' => $line->sort_order,
-                            'account' => $line->account ? [
-                                'id' => $line->account->id,
-                                'code' => $line->account->code,
-                                'label' => $line->account->label,
-                            ] : null,
-                            'contact' => $line->contact ? [
-                                'id' => $line->contact->id,
-                                'display_name' => $line->contact->display_name,
-                            ] : null,
-                        ];
-                    })->values(),
-                    'totals' => [
-                        'debit' => $totalDebit,
-                        'credit' => $totalCredit,
-                        'balanced' => abs($totalDebit - $totalCredit) < 0.0001,
-                    ],
-                ];
             });
+
+        DateRange::apply(
+            $query,
+            $request->input('date_from'),
+            $request->input('date_to'),
+            'entry_date',
+        );
+
+        $sort->apply($query, $orders);
+
+        $entries = $query
+            ->paginate(PerPage::resolve($request))
+            ->withQueryString()
+            ->through(fn (JournalEntry $entry) => (new JournalEntryListResource($entry))->toArray($request));
 
         $journalOptions = Journal::withoutGlobalScopes()
             ->where('company_id', $company->id)

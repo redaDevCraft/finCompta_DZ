@@ -1,4 +1,4 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ArrowUpDown, Plus, Search, Users } from 'lucide-react';
@@ -59,7 +59,7 @@ export default function ClientsIndex({ clients, filters = {}, kpis = {} }) {
                         </p>
                     </div>
                     <Link
-                        href="/contacts"
+                        href={route('contacts.index', { create: 1, type: 'client' })}
                         className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
                     >
                         <Plus className="h-4 w-4" /> Nouveau client

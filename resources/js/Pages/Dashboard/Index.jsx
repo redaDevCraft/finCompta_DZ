@@ -1,5 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link } from '@inertiajs/react';
+import { usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
     ArrowLeftRight,
@@ -202,11 +203,37 @@ export default function Index({
     recent_invoices = [],
     signals = {},
 }) {
+    const { props } = usePage();
+    const subscription = props.subscription ?? null;
+    const showUpgradeCta = !subscription || ['trial', 'past_due', 'canceled', 'expired'].includes(subscription.status);
+
     return (
         <AuthenticatedLayout header="Tableau de bord">
             <Head title="Tableau de bord" />
 
             <div className="space-y-6">
+                {showUpgradeCta && (
+                    <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-sky-50 p-5 shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                                <h3 className="text-lg font-semibold text-indigo-900">
+                                    Passez au plan Pro pour débloquer toutes les fonctionnalités
+                                </h3>
+                                <p className="mt-1 text-sm text-indigo-800">
+                                    Comparez Starter, Pro et Enterprise — offre limitée, montée en
+                                    charge immédiate sans interruption.
+                                </p>
+                            </div>
+                            <Link
+                                href="/pricing"
+                                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                            >
+                                Commencer maintenant
+                            </Link>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h2 className="text-xl font-semibold text-slate-900">
