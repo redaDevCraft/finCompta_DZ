@@ -25,6 +25,22 @@ final class InvoiceListResource extends JsonResource
     {
         /** @var Invoice $invoice */
         $invoice = $this->resource;
+        $total = (float) $invoice->total_ttc;
+        $totalPaid = (float) ($invoice->total_paid_amount ?? 0);
+        $remaining = round($total - $totalPaid, 2);
+
+        $paymentStatus = $invoice->status;
+        if (! in_array($invoice->status, ['draft', 'voided', 'replaced', 'paid'], true)) {
+            if ($remaining <= 0.00001) {
+                $paymentStatus = 'paid';
+            } elseif ($totalPaid > 0.00001) {
+                $paymentStatus = 'partially_paid';
+            } elseif ($invoice->due_date && $invoice->due_date->isPast()) {
+                $paymentStatus = 'overdue';
+            } else {
+                $paymentStatus = 'unpaid';
+            }
+        }
 
         return [
             'id' => $invoice->id,
@@ -35,6 +51,9 @@ final class InvoiceListResource extends JsonResource
             'due_date' => optional($invoice->due_date)->toDateString(),
             'subtotal_ht' => (float) $invoice->subtotal_ht,
             'total_ttc' => (float) $invoice->total_ttc,
+            'total_paid' => $totalPaid,
+            'remaining' => $remaining,
+            'payment_status' => $paymentStatus,
             'currency' => $invoice->currency,
             'has_pdf' => ! empty($invoice->pdf_path),
             'contact' => $invoice->relationLoaded('contact') && $invoice->contact

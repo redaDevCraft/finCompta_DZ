@@ -41,7 +41,10 @@ export default function EntryLocks({ lock }) {
                                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             />
                         </div>
-                        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white">
+                        <button
+                            disabled={passwordForm.processing}
+                            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
                             Enregistrer
                         </button>
                     </form>
@@ -81,17 +84,21 @@ export default function EntryLocks({ lock }) {
                             </div>
                         )}
                         <div className="flex items-end gap-2">
-                            <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+                        <button
+                            disabled={dateForm.processing}
+                            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
                                 Appliquer
                             </button>
                             <button
                                 type="button"
+                            disabled={dateForm.processing}
                                 onClick={() => {
                                     router.post('/settings/entry-locks/date/clear', {
                                         password: dateForm.data.password || undefined,
                                     }, { preserveScroll: true });
                                 }}
-                                className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-medium text-rose-700"
+                            className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 Retirer
                             </button>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
+import StickyBackButton from '@/Components/StickyBackButton';
 import {
     Activity,
     ArrowLeftRight,
@@ -18,10 +19,12 @@ import {
     LogOut,
     Menu,
     NotebookPen,
+    Search,
     Receipt,
     Scale,
     Settings,
     Shield,
+    CircleHelp,
     Truck,
     Upload,
     User,
@@ -33,65 +36,62 @@ const baseNavGroups = [
     {
         label: null,
         items: [
-            { href: '/dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
+            { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         ],
     },
     {
-        label: 'Ventes & achats',
+        label: 'COMMERCIAL',
         items: [
-            { href: '/invoices', label: 'Factures', icon: FileText },
-            { href: '/expenses', label: 'Dépenses', icon: Receipt },
+            { href: '/invoices', label: 'Factures (ventes)', icon: FileText },
+            { href: '/expenses', label: 'Dépenses (achats)', icon: Receipt },
             { href: '/clients', label: 'Clients', icon: User },
             { href: '/suppliers', label: 'Fournisseurs', icon: Truck },
+            { href: '/documents', label: 'Documents (OCR)', icon: Upload },
         ],
     },
     {
-        label: 'Opérations',
+        label: 'BANQUE & TRÉSORERIE',
         items: [
-            { href: '/documents', label: 'Documents', icon: Upload },
-            { href: '/bank/reconcile', label: 'Rapprochement', icon: ArrowLeftRight },
-        ],
-    },
-    {
-        label: 'Comptabilité',
-        items: [
-            { href: '/ledger/entries/create', label: 'Saisie d’écriture', icon: NotebookPen },
-            { href: '/ledger/journal', label: 'Journal', icon: BookOpen },
-            { href: '/ledger/account', label: 'Grand Livre', icon: Layers },
-            { href: '/ledger/lettering', label: 'Lettrage', icon: ClipboardCheck },
-            { href: '/ledger/trial-balance', label: 'Balance', icon: BarChart2 },
-        ],
-    },
-    {
-        label: 'États & rapports',
-        items: [
-            { href: '/reports/bilan', label: 'Bilan', icon: Scale },
-            { href: '/reports/predictions', label: 'Prévisions', icon: BarChart2 },
-            { href: '/reports/aged-receivables', label: 'Balance âgée clients', icon: Clock },
-            { href: '/reports/aged-payables', label: 'Balance âgée fournisseurs', icon: Clock },
-            { href: '/reports/analytic-trial-balance', label: 'Balance analytique', icon: BarChart2 },
-            { href: '/reports/vat', label: 'Rapports TVA', icon: FileBarChart },
-        ],
-    },
-    {
-        label: 'Paramétrage',
-        items: [
-            { href: '/clients', label: 'Tiers', icon: Users },
-            { href: '/settings/accounts', label: 'Plan comptable', icon: Landmark },
-            { href: '/settings/analytics', label: 'Comptabilité analytique', icon: Layers },
-            { href: '/settings/auto-counterpart-rules', label: 'Règles contrepartie auto', icon: ClipboardCheck },
-            { href: '/settings/journals', label: 'Journaux', icon: BookOpen },
-            { href: '/settings/periods', label: 'Périodes fiscales', icon: Clock },
-            { href: '/settings/entry-locks', label: 'Verrouillage écritures', icon: Shield },
             { href: '/settings/bank-accounts', label: 'Comptes bancaires', icon: Landmark },
-            { href: '/settings/company', label: 'Société', icon: Settings },
-            { href: '/settings/performance', label: 'Performance', icon: Activity },
+            { href: '/bank/reconcile', label: 'Rapprochement', icon: ArrowLeftRight },
+            { href: '/documents', label: 'Relevés importés', icon: Upload },
         ],
     },
     {
-        label: 'Abonnement',
+        label: 'COMPTABILITÉ GÉNÉRALE',
         items: [
-            { href: '/billing', label: 'Facturation SaaS', icon: CreditCard },
+            { href: '/ledger/entries/create', label: 'Saisie d’écriture [+]', icon: NotebookPen, cta: true },
+            { href: '/ledger/journal', label: 'Journal des opérations', icon: BookOpen },
+            { href: '/ledger/account', label: 'Grand Livre', icon: Layers },
+            { href: '/ledger/trial-balance', label: 'Balance des comptes', icon: BarChart2 },
+            { href: '/ledger/lettering', label: 'Lettrage', icon: ClipboardCheck },
+        ],
+    },
+    {
+        label: 'ANALYTIQUE & RAPPORTS',
+        items: [
+            { href: '/reports/bilan', label: 'Bilan / CPC / TFT', icon: Scale },
+            { href: '/reports/vat', label: 'Rapport TVA (G50/G11)', icon: FileBarChart },
+            { href: '/reports/analytic-trial-balance', label: 'Balance analytique', icon: BarChart2 },
+            { href: '/reports/aged-receivables', label: 'Balance âgée — Clients', icon: Clock },
+            { href: '/reports/aged-payables', label: 'Balance âgée — Fournisseurs', icon: Clock },
+            { href: '/reports/predictions', label: 'Prévisions de gestion', icon: BarChart2 },
+            { href: '/reports/bilan', label: 'État récap. annuel (ERA)', icon: FileText },
+        ],
+    },
+    {
+        label: 'PARAMÉTRAGE',
+        items: [
+            { href: '/settings/accounts', label: 'Référentiels', icon: Settings, isSubheading: true },
+            { href: '/settings/accounts', label: 'Plan comptable', icon: Landmark, nested: true },
+            { href: '/clients', label: 'Tiers (clients/fourn.)', icon: Users, nested: true },
+            { href: '/settings/journals', label: 'Journaux', icon: BookOpen, nested: true },
+            { href: '/settings/auto-counterpart-rules', label: 'Automatisation', icon: Activity, isSubheading: true },
+            { href: '/settings/auto-counterpart-rules', label: 'Règles contrepartie auto', icon: ClipboardCheck, nested: true },
+            { href: '/settings/analytics', label: 'Comptabilité analytique', icon: Layers, nested: true },
+            { href: '/settings/periods', label: 'Exercice & sécurité', icon: Shield, isSubheading: true },
+            { href: '/settings/periods', label: 'Périodes fiscales', icon: Clock, nested: true },
+            { href: '/settings/entry-locks', label: 'Verrouillage écritures', icon: Shield, nested: true },
         ],
     },
 ];
@@ -110,14 +110,24 @@ function buildNavGroups(roles) {
     return groups;
 }
 
-function SidebarLink({ href, label, icon: Icon, active, onClick, linkRef }) {
+function SidebarLink({ href, label, icon: Icon, active, onClick, linkRef, cta = false, nested = false, isSubheading = false }) {
+    if (isSubheading) {
+        return (
+            <div className="mt-2 px-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                {label}
+            </div>
+        );
+    }
+
     return (
         <Link
             ref={linkRef}
             href={href}
             onClick={onClick}
             className={[
-                'flex items-center gap-3 rounded-r-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                'flex items-center gap-3 rounded-r-lg px-4 py-2.5 text-[14px] font-medium transition-all duration-200',
+                nested ? 'pl-9 text-[13px]' : '',
+                cta ? 'border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : '',
                 active
                     ? 'border-l-4 border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
                     : 'border-l-4 border-transparent text-gray-700 hover:bg-gray-50 hover:text-gray-900 hover:translate-x-0.5',
@@ -131,6 +141,7 @@ function SidebarLink({ href, label, icon: Icon, active, onClick, linkRef }) {
 
 const featureByHref = {
     '/invoices': 'invoicing',
+    '/quotes': 'invoicing',
     '/expenses': 'invoicing',
     '/contacts': 'contacts',
     '/clients': 'contacts',
@@ -155,6 +166,7 @@ export default function AuthenticatedLayout({ header, children }) {
     const [mobileOpen, setMobileOpen] = useState(false);
 
     const company = props.currentCompany ?? null;
+    const companySwitcher = props.company_switcher ?? [];
     const user = props.auth?.user ?? null;
     const roles = props.auth?.roles ?? [];
     const subscription = props.subscription ?? null;
@@ -171,9 +183,17 @@ export default function AuthenticatedLayout({ header, children }) {
     const currentPlanCode = subscription?.plan?.code ?? null;
     const shouldShowUpgradeNudge = !subscription || ['trial', 'starter', 'pro'].includes(currentPlanCode);
     const [upgradeNudgeVisible, setUpgradeNudgeVisible] = useState(false);
+    const [upgradeBannerDismissed, setUpgradeBannerDismissed] = useState(false);
     const [openGroups, setOpenGroups] = useState({});
+    const [quickQuery, setQuickQuery] = useState('');
+    const [selectedFiscalYear, setSelectedFiscalYear] = useState(String(new Date().getFullYear()));
+    const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+    const [contextMenuOpen, setContextMenuOpen] = useState(false);
+    const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
+    const [fiscalMenuOpen, setFiscalMenuOpen] = useState(false);
     const navScrollRef = useRef(null);
     const activeLinkRef = useRef(null);
+    const lastAutoScrolledUrlRef = useRef(null);
 
     useEffect(() => {
         if (!trialBannerStorageKey) return;
@@ -183,6 +203,7 @@ export default function AuthenticatedLayout({ header, children }) {
     useEffect(() => {
         if (!shouldShowUpgradeNudge) {
             setUpgradeNudgeVisible(false);
+            setUpgradeBannerDismissed(false);
             return undefined;
         }
 
@@ -217,6 +238,9 @@ export default function AuthenticatedLayout({ header, children }) {
     }, [navGroups, url]);
 
     useEffect(() => {
+        if (lastAutoScrolledUrlRef.current === url) return;
+        lastAutoScrolledUrlRef.current = url;
+
         const scrollActiveIntoSidebarView = () => {
             const navEl = navScrollRef.current;
             const activeEl = activeLinkRef.current;
@@ -248,7 +272,7 @@ export default function AuthenticatedLayout({ header, children }) {
             window.cancelAnimationFrame(rafId);
             window.clearTimeout(timeoutId);
         };
-    }, [url, mobileOpen, openGroups]);
+    }, [url]);
 
     const toggleGroup = (groupIndex) => {
         const group = navGroups[groupIndex];
@@ -263,21 +287,160 @@ export default function AuthenticatedLayout({ header, children }) {
         }));
     };
 
+    const fiscalYearOptions = useMemo(() => {
+        const year = new Date().getFullYear();
+        return [String(year - 1), String(year), String(year + 1)];
+    }, []);
+
+    const handleCompanySwitch = (nextCompanyId) => {
+        if (!nextCompanyId || String(company?.id ?? '') === nextCompanyId) return;
+
+        router.post(
+            route('company.switch'),
+            { company_id: nextCompanyId },
+            { preserveScroll: true }
+        );
+    };
+
     const sidebar = (
         <div className="flex h-full flex-col bg-white">
             <div className="shrink-0 border-b border-gray-200 px-5 py-4">
-                <div className="text-lg font-bold text-gray-900">FinCompta DZ</div>
-                <div className="mt-1 text-xs text-gray-500">Comptabilité PME Algérie</div>
+                <div className="text-base font-bold text-gray-900">FinCompta DZ</div>
+                <div className="mt-1 text-[11px] text-gray-500">Comptabilité PME Algérie</div>
             </div>
 
-            <nav ref={navScrollRef} className="flex-1 overflow-y-auto px-2 py-3">
+            <div className="relative shrink-0 border-b border-gray-200 bg-slate-50 px-3 py-3">
+                {contextMenuOpen && (
+                    <div className="absolute left-3 right-3 top-[calc(100%+8px)] z-20 rounded-md border border-slate-200 bg-white p-3.5 shadow-lg">
+                        <div className="space-y-3">
+                            <div className="relative">
+                                <div className="mb-1 flex items-center justify-between">
+                                    <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                        Société
+                                    </label>
+                                    <Link
+                                        href="/company/select"
+                                        className="text-[12px] font-medium text-slate-600 hover:text-slate-900"
+                                        onClick={() => setContextMenuOpen(false)}
+                                    >
+                                        Changer
+                                    </Link>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCompanyMenuOpen((open) => !open);
+                                        setFiscalMenuOpen(false);
+                                    }}
+                                    className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[13px] font-semibold uppercase tracking-wide text-slate-700 hover:bg-slate-100"
+                                >
+                                    <span className="truncate">{company?.raison_sociale ?? 'Aucune société'}</span>
+                                    <ChevronDown className={['h-3.5 w-3.5 shrink-0 transition-transform', companyMenuOpen ? 'rotate-180' : ''].join(' ')} />
+                                </button>
+                                {companyMenuOpen && (
+                                    <div className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                                        {companySwitcher.length > 0 ? (
+                                            companySwitcher.map((item) => (
+                                                <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        handleCompanySwitch(String(item.id));
+                                                        setCompanyMenuOpen(false);
+                                                        setContextMenuOpen(false);
+                                                    }}
+                                                    className={[
+                                                        'block w-full px-2.5 py-2 text-left text-[13px] hover:bg-slate-100',
+                                                        String(company?.id ?? '') === String(item.id)
+                                                            ? 'bg-indigo-50 font-semibold text-indigo-700'
+                                                            : 'text-slate-700',
+                                                    ].join(' ')}
+                                                >
+                                                    {item.raison_sociale}
+                                                </button>
+                                            ))
+                                        ) : (
+                                            <div className="px-2.5 py-2 text-[13px] text-slate-500">Aucune société</div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="relative">
+                                <div className="mb-1 flex items-center justify-between">
+                                    <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                        Exercice
+                                    </label>
+                                    <Link
+                                        href="/settings/periods"
+                                        className="text-[12px] font-medium text-slate-600 hover:text-slate-900"
+                                        onClick={() => setContextMenuOpen(false)}
+                                    >
+                                        Gérer
+                                    </Link>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFiscalMenuOpen((open) => !open);
+                                        setCompanyMenuOpen(false);
+                                    }}
+                                    className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                    <span>{selectedFiscalYear}</span>
+                                    <ChevronDown className={['h-3.5 w-3.5 shrink-0 transition-transform', fiscalMenuOpen ? 'rotate-180' : ''].join(' ')} />
+                                </button>
+                                {fiscalMenuOpen && (
+                                    <div className="absolute left-0 right-0 z-20 mt-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                                        {fiscalYearOptions.map((year) => (
+                                            <button
+                                                key={year}
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedFiscalYear(year);
+                                                    setFiscalMenuOpen(false);
+                                                    setContextMenuOpen(false);
+                                                }}
+                                                className={[
+                                                    'block w-full px-2.5 py-2 text-left text-[13px] hover:bg-slate-100',
+                                                    selectedFiscalYear === year
+                                                        ? 'bg-indigo-50 font-semibold text-indigo-700'
+                                                        : 'text-slate-700',
+                                                ].join(' ')}
+                                            >
+                                                {year}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <button
+                    type="button"
+                    onClick={() => {
+                        setContextMenuOpen((open) => !open);
+                        setCompanyMenuOpen(false);
+                        setFiscalMenuOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
+                >
+                    <span className="truncate">
+                        {company?.raison_sociale ?? 'Société'} · {selectedFiscalYear}
+                    </span>
+                    <ChevronDown className={['h-3.5 w-3.5 transition-transform', contextMenuOpen ? 'rotate-180' : ''].join(' ')} />
+                </button>
+            </div>
+
+            <nav ref={navScrollRef} className="flex-1 overflow-y-auto px-2 py-4">
                 {navGroups.map((group, idx) => (
-                    <div key={idx} className={idx > 0 ? 'mt-4' : ''}>
+                    <div key={idx} className={idx > 0 ? 'mt-5' : ''}>
                         {group.label && (
                             <button
                                 type="button"
                                 onClick={() => toggleGroup(idx)}
-                                className="flex w-full items-center justify-between px-4 pb-1 text-base font-semibold tracking-wide text-gray-500 transition-colors hover:text-gray-700"
+                                className="flex w-full items-center justify-between px-4 pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-500 transition-colors hover:text-gray-700"
                             >
                                 <span>{group.label}</span>
                                 <ChevronDown
@@ -290,8 +453,8 @@ export default function AuthenticatedLayout({ header, children }) {
                         )}
                         <div
                             className={[
-                                'space-y-0.5 overflow-hidden transition-all duration-300',
-                                openGroups[idx] ? 'max-h-[32rem] opacity-100' : 'max-h-0 opacity-0 pointer-events-none',
+                                'space-y-1 overflow-hidden transition-all duration-300',
+                                openGroups[idx] ? 'max-h-[40rem] opacity-100' : 'max-h-0 opacity-0 pointer-events-none',
                             ].join(' ')}
                         >
                             {group.items.map((item) => (
@@ -319,7 +482,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                             key={item.href}
                                             href="/billing/checkout"
                                             onClick={() => setMobileOpen(false)}
-                                            className="flex items-center justify-between gap-3 rounded-r-lg border-l-4 border-transparent px-4 py-2.5 text-sm font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                            className="flex items-center justify-between gap-3 rounded-r-lg border-l-4 border-transparent px-4 py-2.5 text-[14px] font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                                             title="Fonctionnalité verrouillée — passez au plan supérieur"
                                         >
                                             <span className="flex min-w-0 items-center gap-3">
@@ -336,17 +499,59 @@ export default function AuthenticatedLayout({ header, children }) {
                 ))}
             </nav>
 
-            {company && (
-                <div className="shrink-0 border-t border-gray-200 bg-gray-50 px-5 py-3 text-xs">
-                    <div className="font-semibold text-gray-900 truncate">
-                        {company.raison_sociale}
+            <div className="relative shrink-0 border-t border-gray-200 bg-gray-50 px-3 py-3">
+                {accountMenuOpen && (
+                    <div className="absolute bottom-full left-3 right-3 z-10 mb-2 rounded-md border border-slate-200 bg-white p-3.5 shadow-lg">
+                        <div className="text-[13px] font-semibold text-gray-900">{user?.name ?? 'Utilisateur'}</div>
+                        {company && (
+                            <div className="mt-0.5 truncate text-[12px] text-slate-500">{company.raison_sociale}</div>
+                        )}
+                        <div className="mt-2 flex items-center gap-2">
+                            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                {subscription?.plan?.name ?? 'Plan non actif'}
+                            </span>
+                            <Link
+                                href="/billing"
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                onClick={() => setAccountMenuOpen(false)}
+                            >
+                                <CreditCard className="h-3.5 w-3.5" />
+                                Billing
+                            </Link>
+                        </div>
+                        <Link
+                            href={route('logout')}
+                            method="post"
+                            as="button"
+                            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-100"
+                        >
+                            <LogOut className="h-3.5 w-3.5" />
+                            Logout
+                        </Link>
                     </div>
-                    <div className="mt-0.5 text-gray-500">Exercice en cours</div>
-                </div>
-            )}
-            {shouldShowUpgradeNudge && (
+                )}
+                <button
+                    type="button"
+                    onClick={() => setAccountMenuOpen((open) => !open)}
+                    className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
+                >
+                    <span className="truncate">{user?.name ?? 'Utilisateur'}</span>
+                    <ChevronDown className={['h-3.5 w-3.5 transition-transform', accountMenuOpen ? 'rotate-180' : ''].join(' ')} />
+                </button>
+            </div>
+            {shouldShowUpgradeNudge && !upgradeBannerDismissed && (
                 <div className="shrink-0 border-t border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3">
-                    <div className="text-xs font-semibold text-amber-900">Passez au niveau supérieur</div>
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="text-xs font-semibold text-amber-900">Passez au niveau supérieur</div>
+                        <button
+                            type="button"
+                            onClick={() => setUpgradeBannerDismissed(true)}
+                            className="rounded p-0.5 text-amber-700 hover:bg-amber-100 hover:text-amber-900"
+                            aria-label="Fermer la bannière d'upgrade"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
                     <div className="mt-1 text-[11px] text-amber-800">
                         Débloquez plus d’automatisation et de fonctionnalités premium.
                     </div>
@@ -360,6 +565,18 @@ export default function AuthenticatedLayout({ header, children }) {
                 </div>
             )}
         </div>
+    );
+
+    const quickActions = [
+        { href: '/invoices/create', label: 'Créer une facture' },
+        { href: '/quotes/create', label: 'Créer un devis' },
+        { href: '/expenses/create', label: 'Ajouter une dépense' },
+        { href: '/ledger/entries/create', label: 'Saisir une écriture' },
+        { href: '/bank/reconcile', label: 'Rapprocher la banque' },
+    ];
+
+    const filteredQuickActions = quickActions.filter((action) =>
+        action.label.toLowerCase().includes(quickQuery.trim().toLowerCase())
     );
 
     return (
@@ -413,23 +630,74 @@ export default function AuthenticatedLayout({ header, children }) {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="hidden xl:block">
+                                <div className="group relative">
+                                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                        <Search className="h-4 w-4 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            value={quickQuery}
+                                            onChange={(e) => setQuickQuery(e.target.value)}
+                                            placeholder="Recherche action rapide..."
+                                            className="w-56 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                                        />
+                                    </div>
+                                    {quickQuery.trim().length > 0 && (
+                                        <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                                            {filteredQuickActions.length > 0 ? (
+                                                filteredQuickActions.map((action) => (
+                                                    <Link
+                                                        key={action.href}
+                                                        href={action.href}
+                                                        onClick={() => setQuickQuery('')}
+                                                        className="block px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"
+                                                    >
+                                                        {action.label}
+                                                    </Link>
+                                                ))
+                                            ) : (
+                                                <div className="px-3 py-2 text-xs text-slate-500">
+                                                    Aucune action trouvée
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="hidden items-center gap-2 lg:flex">
+                                <Link
+                                    href="/invoices/create"
+                                    className="rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                                >
+                                    + Facture
+                                </Link>
+                                <Link
+                                    href="/expenses/create"
+                                    className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                    + Dépense
+                                </Link>
+                                <Link
+                                    href="/bank/reconcile"
+                                    className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                                >
+                                    Rapprocher
+                                </Link>
+                            </div>
+                            <Link
+                                href={route('legal.terms')}
+                                className="hidden items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 md:inline-flex"
+                            >
+                                <CircleHelp className="h-3.5 w-3.5" />
+                                Aide
+                            </Link>
                             <div className="hidden text-right sm:block">
                                 <div className="text-sm font-medium text-gray-900">
                                     {user?.name ?? 'Utilisateur'}
                                 </div>
                                 <div className="text-xs text-gray-500">Session active</div>
                             </div>
-
-                            <Link
-                                href={route('logout')}
-                                method="post"
-                                as="button"
-                                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                            >
-                                <LogOut className="h-4 w-4" />
-                                <span className="hidden sm:inline">Déconnexion</span>
-                            </Link>
                         </div>
                     </div>
                 </header>
@@ -509,6 +777,7 @@ export default function AuthenticatedLayout({ header, children }) {
 
                 <main className="px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
             </div>
+            <StickyBackButton />
         </div>
     );
 }

@@ -19,7 +19,8 @@ class LandingController extends Controller
             ->get([
                 'id', 'code', 'name', 'tagline',
                 'monthly_price_dzd', 'yearly_price_dzd',
-                'trial_days', 'features',
+                'trial_days', 'features', 'segment',
+                'max_companies', 'max_users', 'is_default',
             ]);
 
         return Inertia::render('Landing/Home', [

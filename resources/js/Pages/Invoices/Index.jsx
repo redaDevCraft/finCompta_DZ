@@ -22,6 +22,22 @@ const formatDate = (value) => {
     }).format(new Date(value));
 };
 
+function MiniStat({ label, value, tone = 'slate' }) {
+    const tones = {
+        slate: 'border-slate-200 bg-slate-50 text-slate-800',
+        indigo: 'border-indigo-200 bg-indigo-50 text-indigo-800',
+        emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        amber: 'border-amber-200 bg-amber-50 text-amber-800',
+    };
+
+    return (
+        <div className={`rounded-lg border px-3 py-2 ${tones[tone] || tones.slate}`}>
+            <p className="text-[11px] uppercase tracking-wide opacity-80">{label}</p>
+            <p className="mt-1 text-sm font-semibold">{value}</p>
+        </div>
+    );
+}
+
 export default function Index({ invoices, filters = {} }) {
     const { confirm } = useNotification();
 
@@ -56,6 +72,14 @@ export default function Index({ invoices, filters = {} }) {
         router.post(`/invoices/${invoice.id}/void`, {}, { preserveScroll: true });
     };
 
+    const invoiceRows = invoices?.data ?? [];
+    const totalInvoices = invoiceRows.length;
+    const draftCount = invoiceRows.filter((item) => item.status === 'draft').length;
+    const overdueCount = invoiceRows.filter(
+        (item) => item.payment_status === 'overdue'
+    ).length;
+    const totalTtc = invoiceRows.reduce((sum, item) => sum + Number(item.total_ttc ?? 0), 0);
+
     return (
         <AuthenticatedLayout header="Factures">
             <Head title="Factures" />
@@ -75,6 +99,13 @@ export default function Index({ invoices, filters = {} }) {
                     >
                         Nouvelle facture
                     </Link>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <MiniStat label="Factures (page)" value={totalInvoices} />
+                    <MiniStat label="Brouillons" value={draftCount} tone="amber" />
+                    <MiniStat label="Échues non soldées" value={overdueCount} tone="indigo" />
+                    <MiniStat label="Total TTC (page)" value={formatCurrency(totalTtc)} tone="emerald" />
                 </div>
 
                 <form
@@ -112,6 +143,8 @@ export default function Index({ invoices, filters = {} }) {
                                 <option value="issued">Émise</option>
                                 <option value="partially_paid">Partiellement payée</option>
                                 <option value="paid">Payée</option>
+                                <option value="unpaid">Impayée</option>
+                                <option value="overdue">En retard</option>
                                 <option value="voided">Annulée</option>
                                 <option value="replaced">Remplacée</option>
                             </select>
@@ -145,6 +178,34 @@ export default function Index({ invoices, filters = {} }) {
                     <div className="mt-4 flex flex-wrap items-center gap-3">
                         <button
                             type="button"
+                            onClick={() => setValue('status', 'draft')}
+                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                        >
+                            Brouillons
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setValue('status', 'issued')}
+                            className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+                        >
+                            Émises
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setValue('status', 'paid')}
+                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+                        >
+                            Payées
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setValue('status', 'overdue')}
+                            className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-medium text-rose-800 hover:bg-rose-100"
+                        >
+                            En retard
+                        </button>
+                        <button
+                            type="button"
                             onClick={reset}
                             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                         >
@@ -161,7 +222,7 @@ export default function Index({ invoices, filters = {} }) {
                 <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
+                            <thead className="sticky top-0 z-10 bg-gray-50">
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                                         N° Facture
@@ -185,6 +246,12 @@ export default function Index({ invoices, filters = {} }) {
                                         Total TTC
                                     </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                                        Payé
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                                        Reste
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                                         Statut
                                     </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
@@ -194,7 +261,7 @@ export default function Index({ invoices, filters = {} }) {
                             </thead>
 
                             {loading ? (
-                                <TableSkeleton rows={8} columns={9} />
+                                <TableSkeleton rows={8} columns={11} />
                             ) : (
                             <tbody className="divide-y divide-gray-100 bg-white">
                                 {invoices?.data?.length > 0 ? (
@@ -225,7 +292,13 @@ export default function Index({ invoices, filters = {} }) {
                                                 {formatCurrency(invoice.total_ttc)}
                                             </td>
                                             <td className="px-4 py-3 text-sm text-gray-700">
-                                                <Badge status={invoice.status} />
+                                                {formatCurrency(invoice.total_paid)}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">
+                                                {formatCurrency(invoice.remaining)}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm text-gray-700">
+                                                <Badge status={invoice.payment_status ?? invoice.status} />
                                             </td>
                                             <td className="px-4 py-3 text-sm text-gray-700">
                                                 <div className="flex flex-wrap gap-2">
@@ -273,10 +346,18 @@ export default function Index({ invoices, filters = {} }) {
                                 ) : (
                                     <tr>
                                         <td
-                                            colSpan={9}
+                                            colSpan={11}
                                             className="px-4 py-10 text-center text-sm text-gray-500"
                                         >
-                                            Aucune facture trouvée
+                                            <div className="space-y-2">
+                                                <p>Aucune facture trouvée</p>
+                                                <Link
+                                                    href="/invoices/create"
+                                                    className="inline-flex rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                                                >
+                                                    Créer une facture
+                                                </Link>
+                                            </div>
                                         </td>
                                     </tr>
                                 )}

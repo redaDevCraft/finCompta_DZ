@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Invoice extends Model
 {
@@ -54,6 +55,12 @@ class Invoice extends Model
     protected static function boot(): void
     {
         parent::boot();
+
+        static::creating(function (Invoice $invoice) {
+            if (empty($invoice->id)) {
+                $invoice->id = (string) Str::uuid();
+            }
+        });
 
         static::addGlobalScope('company', function (Builder $builder) {
             if (app()->has('currentCompany')) {
@@ -110,6 +117,11 @@ class Invoice extends Model
     public function vatBuckets(): HasMany
     {
         return $this->hasMany(InvoiceVatBucket::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(InvoicePayment::class)->orderByDesc('date')->orderByDesc('created_at');
     }
 
     public function scopeForCompany(Builder $query, string $companyId): Builder

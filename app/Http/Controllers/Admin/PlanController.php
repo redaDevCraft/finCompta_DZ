@@ -38,6 +38,10 @@ class PlanController extends Controller
     {
         $validated = $this->validatePayload($request);
 
+        if (($validated['is_default'] ?? false) === true) {
+            Plan::query()->update(['is_default' => false]);
+        }
+
         Plan::create($validated);
 
         return redirect()
@@ -55,6 +59,10 @@ class PlanController extends Controller
     public function update(Request $request, Plan $plan): RedirectResponse
     {
         $validated = $this->validatePayload($request, $plan);
+
+        if (($validated['is_default'] ?? false) === true) {
+            Plan::query()->where('id', '!=', $plan->id)->update(['is_default' => false]);
+        }
 
         $plan->update($validated);
 
@@ -98,10 +106,12 @@ class PlanController extends Controller
                 Rule::unique('plans', 'code')->ignore($plan?->id),
             ],
             'name' => ['required', 'string', 'max:100'],
+            'segment' => ['required', Rule::in(['solo', 'sme', 'firm'])],
             'tagline' => ['nullable', 'string', 'max:255'],
             'monthly_price_dzd' => ['required', 'integer', 'min:0'],
             'yearly_price_dzd' => ['required', 'integer', 'min:0'],
             'trial_days' => ['required', 'integer', 'min:0', 'max:365'],
+            'max_companies' => ['nullable', 'integer', 'min:1'],
             'max_users' => ['nullable', 'integer', 'min:1'],
             'max_invoices_per_month' => ['nullable', 'integer', 'min:0'],
             'max_documents_per_month' => ['nullable', 'integer', 'min:0'],
@@ -109,6 +119,7 @@ class PlanController extends Controller
             'features.*' => ['string', 'max:255'],
             'sort_order' => ['required', 'integer'],
             'is_active' => ['required', 'boolean'],
+            'is_default' => ['required', 'boolean'],
         ]);
 
         $data['features'] = array_values(array_filter(

@@ -2,6 +2,7 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Badge from '@/Components/UI/Badge';
 import { useNotification } from '@/Context/NotificationContext';
+import { useState } from 'react';
 import {
     AlertCircle,
     ArrowLeft,
@@ -36,9 +37,17 @@ const docTypeLabel = (type) =>
         delivery_note: 'Bon de livraison',
     })[type] ?? type;
 
-export default function Show({ invoice }) {
+export default function Show({ invoice, paymentSummary }) {
     const { errors } = usePage().props;
     const { confirm } = useNotification();
+    const [paymentForm, setPaymentForm] = useState({
+        date: new Date().toISOString().split('T')[0],
+        amount: '',
+        method: 'bank_transfer',
+        reference: '',
+    });
+    const [actionSubmitting, setActionSubmitting] = useState(false);
+    const [paymentSubmitting, setPaymentSubmitting] = useState(false);
 
     if (!invoice) {
         return (
@@ -61,8 +70,12 @@ export default function Show({ invoice }) {
             message: 'Émettre cette facture ? Elle sera numérotée et non-modifiable.',
             confirmLabel: 'Émettre',
         });
-        if (!ok) return;
-        router.post(`/invoices/${invoice.id}/issue`, {}, { preserveScroll: true });
+        if (!ok || actionSubmitting) return;
+        setActionSubmitting(true);
+        router.post(`/invoices/${invoice.id}/issue`, {}, {
+            preserveScroll: true,
+            onFinish: () => setActionSubmitting(false),
+        });
     };
 
     const voidInvoice = async () => {
@@ -71,8 +84,12 @@ export default function Show({ invoice }) {
             message: 'Annuler cette facture ?',
             confirmLabel: 'Annuler',
         });
-        if (!ok) return;
-        router.post(`/invoices/${invoice.id}/void`, {}, { preserveScroll: true });
+        if (!ok || actionSubmitting) return;
+        setActionSubmitting(true);
+        router.post(`/invoices/${invoice.id}/void`, {}, {
+            preserveScroll: true,
+            onFinish: () => setActionSubmitting(false),
+        });
     };
 
     const createCredit = async () => {
@@ -81,8 +98,22 @@ export default function Show({ invoice }) {
             message: 'Créer un avoir pour cette facture ?',
             confirmLabel: 'Créer',
         });
-        if (!ok) return;
-        router.post(`/invoices/${invoice.id}/credit`, {}, { preserveScroll: false });
+        if (!ok || actionSubmitting) return;
+        setActionSubmitting(true);
+        router.post(`/invoices/${invoice.id}/credit`, {}, {
+            preserveScroll: false,
+            onFinish: () => setActionSubmitting(false),
+        });
+    };
+
+    const recordPayment = (e) => {
+        e.preventDefault();
+        if (paymentSubmitting) return;
+        setPaymentSubmitting(true);
+        router.post(`/invoices/${invoice.id}/payments`, paymentForm, {
+            preserveScroll: true,
+            onFinish: () => setPaymentSubmitting(false),
+        });
     };
 
     return (
@@ -106,7 +137,8 @@ export default function Show({ invoice }) {
                             <button
                                 type="button"
                                 onClick={issueInvoice}
-                                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                                disabled={actionSubmitting}
+                                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <Send className="h-4 w-4" />
                                 Émettre
@@ -129,7 +161,8 @@ export default function Show({ invoice }) {
                             <button
                                 type="button"
                                 onClick={createCredit}
-                                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3.5 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50"
+                                disabled={actionSubmitting}
+                                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3.5 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <FilePlus2 className="h-4 w-4" />
                                 Créer un avoir
@@ -140,7 +173,8 @@ export default function Show({ invoice }) {
                             <button
                                 type="button"
                                 onClick={voidInvoice}
-                                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3.5 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                                disabled={actionSubmitting}
+                                className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3.5 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <Ban className="h-4 w-4" />
                                 Annuler
@@ -178,7 +212,7 @@ export default function Show({ invoice }) {
                                     {invoice.due_date ? ` · échéance ${formatDate(invoice.due_date)}` : ''}
                                 </p>
                             </div>
-                            <Badge status={invoice.status} />
+                            <Badge status={paymentSummary?.payment_status ?? invoice.status} />
                         </div>
 
                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -240,7 +274,101 @@ export default function Show({ invoice }) {
                                     {formatCurrency(invoice.total_ttc, invoice.currency)}
                                 </dd>
                             </div>
+                            <div className="flex items-center justify-between">
+                                <dt className="text-slate-600">Total payé</dt>
+                                <dd className="font-medium text-slate-900">
+                                    {formatCurrency(paymentSummary?.total_paid ?? 0, invoice.currency)}
+                                </dd>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <dt className="text-slate-600">Reste à payer</dt>
+                                <dd className="font-semibold text-slate-900">
+                                    {formatCurrency(paymentSummary?.remaining ?? invoice.total_ttc, invoice.currency)}
+                                </dd>
+                            </div>
                         </dl>
+                    </div>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <h3 className="text-sm font-semibold text-slate-900">Historique des paiements</h3>
+                        <div className="mt-3 overflow-x-auto">
+                            <table className="min-w-full divide-y divide-slate-200 text-sm">
+                                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left">Date</th>
+                                        <th className="px-3 py-2 text-left">Méthode</th>
+                                        <th className="px-3 py-2 text-right">Montant</th>
+                                        <th className="px-3 py-2 text-left">Référence</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {invoice.payments?.length ? (
+                                        invoice.payments.map((payment) => (
+                                            <tr key={payment.id}>
+                                                <td className="px-3 py-2">{formatDate(payment.date)}</td>
+                                                <td className="px-3 py-2">{payment.method}</td>
+                                                <td className="px-3 py-2 text-right">
+                                                    {formatCurrency(payment.amount, invoice.currency)}
+                                                </td>
+                                                <td className="px-3 py-2">{payment.reference ?? '—'}</td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
+                                                Aucun paiement enregistré
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <h3 className="text-sm font-semibold text-slate-900">Enregistrer un paiement</h3>
+                        <form onSubmit={recordPayment} className="mt-3 space-y-3">
+                            <input
+                                type="date"
+                                value={paymentForm.date}
+                                onChange={(e) => setPaymentForm((prev) => ({ ...prev, date: e.target.value }))}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            />
+                            <input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                placeholder="Montant"
+                                value={paymentForm.amount}
+                                onChange={(e) => setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            />
+                            <select
+                                value={paymentForm.method}
+                                onChange={(e) => setPaymentForm((prev) => ({ ...prev, method: e.target.value }))}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            >
+                                <option value="cash">Espèces</option>
+                                <option value="bank_transfer">Virement</option>
+                                <option value="card">Carte</option>
+                                <option value="cheque">Chèque</option>
+                            </select>
+                            <input
+                                type="text"
+                                placeholder="Référence"
+                                value={paymentForm.reference}
+                                onChange={(e) => setPaymentForm((prev) => ({ ...prev, reference: e.target.value }))}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            />
+                            <button
+                                type="submit"
+                                disabled={paymentSubmitting}
+                                className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                Enregistrer le paiement
+                            </button>
+                        </form>
                     </div>
                 </div>
 

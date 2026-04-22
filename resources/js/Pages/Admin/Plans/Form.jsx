@@ -6,33 +6,39 @@ function defaultValues(plan) {
     if (!plan) {
         return {
             code: '',
+            segment: 'sme',
             name: '',
             tagline: '',
             monthly_price_dzd: 0,
             yearly_price_dzd: 0,
             trial_days: 3,
+            max_companies: 1,
             max_users: '',
             max_invoices_per_month: '',
             max_documents_per_month: '',
             features: [''],
             sort_order: 100,
             is_active: true,
+            is_default: false,
         };
     }
 
     return {
         code: plan.code ?? '',
+        segment: plan.segment ?? 'sme',
         name: plan.name ?? '',
         tagline: plan.tagline ?? '',
         monthly_price_dzd: plan.monthly_price_dzd ?? 0,
         yearly_price_dzd: plan.yearly_price_dzd ?? 0,
         trial_days: plan.trial_days ?? 3,
+        max_companies: plan.max_companies ?? '',
         max_users: plan.max_users ?? '',
         max_invoices_per_month: plan.max_invoices_per_month ?? '',
         max_documents_per_month: plan.max_documents_per_month ?? '',
         features: Array.isArray(plan.features) && plan.features.length ? plan.features : [''],
         sort_order: plan.sort_order ?? 100,
         is_active: Boolean(plan.is_active),
+        is_default: Boolean(plan.is_default),
     };
 }
 
@@ -46,6 +52,7 @@ export default function PlanForm({ plan }) {
 
         const payload = {
             ...data,
+            max_companies: data.max_companies === '' ? null : Number(data.max_companies),
             max_users: data.max_users === '' ? null : Number(data.max_users),
             max_invoices_per_month:
                 data.max_invoices_per_month === '' ? null : Number(data.max_invoices_per_month),
@@ -102,6 +109,17 @@ export default function PlanForm({ plan }) {
                                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                             />
                         </Field>
+                        <Field label="Segment *" error={errors.segment}>
+                            <select
+                                value={data.segment}
+                                onChange={(e) => setData('segment', e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            >
+                                <option value="solo">Solo (Auto-entrepreneur / TPE)</option>
+                                <option value="sme">SME (PME / SARL)</option>
+                                <option value="firm">Firm (Cabinet comptable)</option>
+                            </select>
+                        </Field>
                         <Field label="Slogan" error={errors.tagline} className="sm:col-span-2">
                             <input
                                 type="text"
@@ -151,6 +169,15 @@ export default function PlanForm({ plan }) {
                         Limites (vide = illimité)
                     </h2>
                     <div className="grid gap-4 sm:grid-cols-3">
+                        <Field label="Max sociétés" error={errors.max_companies}>
+                            <input
+                                type="number"
+                                min="1"
+                                value={data.max_companies ?? ''}
+                                onChange={(e) => setData('max_companies', e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            />
+                        </Field>
                         <Field label="Max utilisateurs" error={errors.max_users}>
                             <input
                                 type="number"
@@ -231,6 +258,15 @@ export default function PlanForm({ plan }) {
                                 className="h-4 w-4 rounded"
                             />
                             Plan actif (visible dans l'app)
+                        </label>
+                        <label className="mt-6 flex items-center gap-2 text-sm">
+                            <input
+                                type="checkbox"
+                                checked={data.is_default}
+                                onChange={(e) => setData('is_default', e.target.checked)}
+                                className="h-4 w-4 rounded"
+                            />
+                            Plan recommandé par défaut
                         </label>
                     </div>
                 </div>

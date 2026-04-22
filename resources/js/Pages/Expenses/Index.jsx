@@ -48,6 +48,22 @@ function statusBadge(status) {
     );
 }
 
+function MiniStat({ label, value, tone = 'slate' }) {
+    const tones = {
+        slate: 'border-slate-200 bg-slate-50 text-slate-800',
+        indigo: 'border-indigo-200 bg-indigo-50 text-indigo-800',
+        emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        amber: 'border-amber-200 bg-amber-50 text-amber-800',
+    };
+
+    return (
+        <div className={`rounded-lg border px-3 py-2 ${tones[tone] || tones.slate}`}>
+            <p className="text-[11px] uppercase tracking-wide opacity-80">{label}</p>
+            <p className="mt-1 text-sm font-semibold">{value}</p>
+        </div>
+    );
+}
+
 export default function Index({ expenses, filters = {} }) {
     const { confirm } = useNotification();
 
@@ -76,6 +92,12 @@ export default function Index({ expenses, filters = {} }) {
         );
     };
 
+    const expenseRows = expenses?.data ?? [];
+    const totalExpenses = expenseRows.length;
+    const draftCount = expenseRows.filter((item) => item.status === 'draft').length;
+    const paidCount = expenseRows.filter((item) => item.status === 'paid').length;
+    const totalTtc = expenseRows.reduce((sum, item) => sum + Number(item.total_ttc ?? 0), 0);
+
     return (
         <AuthenticatedLayout header="Dépenses">
             <Head title="Dépenses" />
@@ -95,6 +117,13 @@ export default function Index({ expenses, filters = {} }) {
                     >
                         + Nouvelle dépense
                     </Link>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <MiniStat label="Dépenses (page)" value={totalExpenses} />
+                    <MiniStat label="Brouillons" value={draftCount} tone="amber" />
+                    <MiniStat label="Payées" value={paidCount} tone="emerald" />
+                    <MiniStat label="Total TTC (page)" value={formatMoney(totalTtc)} tone="indigo" />
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -162,6 +191,27 @@ export default function Index({ expenses, filters = {} }) {
                         <div className="flex items-end gap-2 md:col-span-5">
                             <button
                                 type="button"
+                                onClick={() => setValue('status', 'draft')}
+                                className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                            >
+                                Brouillons
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setValue('status', 'confirmed')}
+                                className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+                            >
+                                Confirmées
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setValue('status', 'paid')}
+                                className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+                            >
+                                Payées
+                            </button>
+                            <button
+                                type="button"
                                 onClick={reset}
                                 className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                             >
@@ -179,7 +229,7 @@ export default function Index({ expenses, filters = {} }) {
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-slate-200">
-                            <thead className="bg-slate-50">
+                            <thead className="sticky top-0 z-10 bg-slate-50">
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                                         Date
@@ -259,7 +309,15 @@ export default function Index({ expenses, filters = {} }) {
                                             colSpan="6"
                                             className="px-4 py-10 text-center text-sm text-slate-500"
                                         >
-                                            Aucune dépense trouvée.
+                                            <div className="space-y-2">
+                                                <p>Aucune dépense trouvée.</p>
+                                                <Link
+                                                    href="/expenses/create"
+                                                    className="inline-flex rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                                                >
+                                                    Ajouter une dépense
+                                                </Link>
+                                            </div>
                                         </td>
                                     </tr>
                                 )}

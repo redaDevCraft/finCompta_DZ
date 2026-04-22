@@ -36,12 +36,13 @@ export default function Predictions({
                         </div>
                         <button
                             type="button"
+                            disabled={toggleForm.processing}
                             onClick={() => toggleForm.post('/reports/predictions/toggle', {
                                 data: { enabled: !toggleForm.data.enabled },
                                 preserveScroll: true,
                                 onSuccess: () => toggleForm.setData('enabled', !toggleForm.data.enabled),
                             })}
-                            className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${toggleForm.data.enabled ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                            className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60 ${toggleForm.data.enabled ? 'bg-emerald-600' : 'bg-slate-700'}`}
                         >
                             {toggleForm.data.enabled ? 'Activé' : 'Désactivé'}
                         </button>
@@ -74,7 +75,12 @@ export default function Predictions({
                         <input type="date" value={createForm.data.period_start_date} onChange={(e) => createForm.setData('period_start_date', e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                         <input type="date" value={createForm.data.period_end_date} onChange={(e) => createForm.setData('period_end_date', e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                         <input value={createForm.data.comment} onChange={(e) => createForm.setData('comment', e.target.value)} placeholder="Commentaire" className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" />
-                        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white">Ajouter</button>
+                        <button
+                            disabled={createForm.processing}
+                            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            Ajouter
+                        </button>
                     </form>
                 </div>
 

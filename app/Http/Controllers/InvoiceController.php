@@ -8,6 +8,7 @@ use App\Models\Account;
 use App\Models\Invoice;
 use App\Models\TaxRate;
 use App\Models\User;
+use App\Services\InvoicePaymentService;
 use App\Services\InvoiceService;
 use App\Services\SequenceService;
 use App\Support\ListQuery\DateRange;
@@ -54,7 +55,24 @@ class InvoiceController extends Controller
                 'created_at',
             ])
             ->with(['contact:id,display_name'])
-            ->when($status, fn ($q) => $q->where('status', $status));
+            ->withSum('payments as total_paid_amount', 'amount');
+
+        if ($status === 'paid') {
+            $query->where('status', 'paid');
+        } elseif ($status === 'overdue') {
+            $query->whereIn('status', ['issued', 'partially_paid'])
+                ->whereDate('due_date', '<', now()->toDateString())
+                ->havingRaw('COALESCE(total_paid_amount, 0) < total_ttc');
+        } elseif ($status === 'unpaid') {
+            $query->where('status', 'issued')
+                ->where(function ($q) {
+                    $q->whereNull('due_date')
+                        ->orWhereDate('due_date', '>=', now()->toDateString());
+                })
+                ->havingRaw('COALESCE(total_paid_amount, 0) <= 0');
+        } elseif ($status) {
+            $query->where('status', $status);
+        }
 
         // Sargable date range — plain comparisons against the DATE column keep
         // the (company_id, issue_date) index usable. whereDate() would wrap the
@@ -182,7 +200,7 @@ class InvoiceController extends Controller
         return redirect()->route('invoices.show', $invoice);
     }
 
-    public function show(Invoice $invoice): Response
+    public function show(Invoice $invoice, InvoicePaymentService $paymentService): Response
     {
         $this->authorizeInvoice($invoice);
 
@@ -190,11 +208,15 @@ class InvoiceController extends Controller
             'contact',
             'lines',
             'vatBuckets',
+            'payments.creator',
             'journalEntry.lines.account',
         ]);
 
+        $summary = $paymentService->summarize($invoice);
+
         return Inertia::render('Invoices/Show', [
             'invoice' => $invoice,
+            'paymentSummary' => $summary,
         ]);
     }
 
@@ -269,7 +291,11 @@ class InvoiceController extends Controller
 
         abort_if(! $invoice->isEditable(), 422, 'Facture déjà émise');
 
-        $result = $service->issue($invoice, app('currentCompany'), auth()->user());
+        /** @var User|null $user */
+        $user = request()->user();
+        abort_if(! $user, 403, 'Utilisateur non authentifié');
+
+        $result = $service->issue($invoice, app('currentCompany'), $user);
 
         if (! ($result['success'] ?? false)) {
             return back()->withErrors($result['errors'] ?? ['Erreur inconnue']);

@@ -38,7 +38,13 @@ export default function Currencies({ baseCurrencyCode, currencies = [], rates = 
                             <input type="checkbox" checked={currencyForm.data.is_active} onChange={(e) => currencyForm.setData('is_active', e.target.checked)} />
                             Active
                         </label>
-                        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700" type="submit">Ajouter</button>
+                        <button
+                            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            type="submit"
+                            disabled={currencyForm.processing}
+                        >
+                            Ajouter
+                        </button>
                     </form>
 
                     <div className="mt-4 space-y-2">
@@ -71,7 +77,13 @@ export default function Currencies({ baseCurrencyCode, currencies = [], rates = 
                         </select>
                         <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="date" value={rateForm.data.rate_date} onChange={(e) => rateForm.setData('rate_date', e.target.value)} required />
                         <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="number" step="0.00000001" min="0" value={rateForm.data.rate} onChange={(e) => rateForm.setData('rate', e.target.value)} required />
-                        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700" type="submit">Enregistrer taux</button>
+                        <button
+                            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            type="submit"
+                            disabled={rateForm.processing}
+                        >
+                            Enregistrer taux
+                        </button>
                     </form>
 
                     <div className="mt-4 space-y-2">

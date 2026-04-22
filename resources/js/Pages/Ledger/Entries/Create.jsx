@@ -90,13 +90,55 @@ export default function CreateJournalEntry({
         };
     }, [data.lines]);
 
+    const appendAutoCounterpartIfNeeded = (lines, index) => {
+        const journal = journals.find((j) => j.id === data.journal_id);
+        if (!journal?.allow_auto_counterpart) return lines;
+
+        const source = lines[index];
+        if (!source?.account_id) return lines;
+        const debit = parseFloat(source.debit) || 0;
+        const credit = parseFloat(source.credit) || 0;
+        const direction = debit > 0 ? 'debit' : credit > 0 ? 'credit' : null;
+        const amount = debit > 0 ? debit : credit;
+        if (!direction || amount <= 0) return lines;
+
+        const rule = autoCounterpartRules.find(
+            (r) => r.trigger_account_id === source.account_id && r.trigger_direction === direction
+        );
+        if (!rule) return lines;
+
+        const exists = lines.some(
+            (l) =>
+                l.description?.startsWith('Contrepartie auto:') &&
+                l.account_id === rule.counterpart_account_id &&
+                ((rule.counterpart_direction === 'debit' && (parseFloat(l.debit) || 0) === amount) ||
+                    (rule.counterpart_direction === 'credit' && (parseFloat(l.credit) || 0) === amount))
+        );
+        if (exists) return lines;
+
+        const generated = {
+            account_id: rule.counterpart_account_id,
+            contact_id: '',
+            analytic_section_id: '',
+            description: `Contrepartie auto: ${rule.name}`,
+            debit: rule.counterpart_direction === 'debit' ? String(amount) : '',
+            credit: rule.counterpart_direction === 'credit' ? String(amount) : '',
+        };
+
+        return [...lines, generated];
+    };
+
     const setLine = (index, field, value) => {
-        const next = data.lines.map((l, i) => (i === index ? { ...l, [field]: value } : l));
+        let next = data.lines.map((l, i) => (i === index ? { ...l, [field]: value } : l));
 
         if (field === 'debit' && value !== '' && parseFloat(value) > 0) {
             next[index].credit = '';
         } else if (field === 'credit' && value !== '' && parseFloat(value) > 0) {
             next[index].debit = '';
+        }
+
+        if (field === 'debit' || field === 'credit') {
+            next = appendAutoCounterpartIfNeeded(next, index);
         }
 
         setData('lines', next);
@@ -112,37 +154,7 @@ export default function CreateJournalEntry({
     };
 
     const applyAutoCounterpart = (index) => {
-        const journal = journals.find((j) => j.id === data.journal_id);
-        if (!journal?.allow_auto_counterpart) return;
-
-        const source = data.lines[index];
-        if (!source?.account_id) return;
-        const debit = parseFloat(source.debit) || 0;
-        const credit = parseFloat(source.credit) || 0;
-        const direction = debit > 0 ? 'debit' : credit > 0 ? 'credit' : null;
-        const amount = debit > 0 ? debit : credit;
-        if (!direction || amount <= 0) return;
-
-        const rule = autoCounterpartRules.find(
-            (r) => r.trigger_account_id === source.account_id && r.trigger_direction === direction
-        );
-        if (!rule) return;
-
-        const exists = data.lines.some(
-            (l) => l.description?.startsWith('Contrepartie auto:') && l.account_id === rule.counterpart_account_id
-        );
-        if (exists) return;
-
-        const generated = {
-            account_id: rule.counterpart_account_id,
-            contact_id: '',
-            analytic_section_id: '',
-            description: `Contrepartie auto: ${rule.name}`,
-            debit: rule.counterpart_direction === 'debit' ? String(amount) : '',
-            credit: rule.counterpart_direction === 'credit' ? String(amount) : '',
-        };
-
-        setData('lines', [...data.lines, generated]);
+        setData('lines', appendAutoCounterpartIfNeeded(data.lines, index));
     };
 
     const addLine = () => setData('lines', [...data.lines, emptyLine()]);

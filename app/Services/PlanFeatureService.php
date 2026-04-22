@@ -30,6 +30,10 @@ final class PlanFeatureService
             return ['*'];
         }
 
+        if (is_array($plan->features) && $plan->features !== []) {
+            return array_values(array_unique($plan->features));
+        }
+
         $dbOverrides = PlanFeature::query()
             ->where('plan_id', $plan->id)
             ->where('enabled', true)
@@ -61,17 +65,21 @@ final class PlanFeatureService
     public function catalogue(): Collection
     {
         return collect([
-            ['key' => 'invoicing', 'label' => 'Facturation'],
-            ['key' => 'contacts', 'label' => 'Contacts/Tiers'],
-            ['key' => 'journal_entries', 'label' => 'Saisie comptable / Journal'],
+            ['key' => 'invoices', 'label' => 'Factures'],
+            ['key' => 'quotes', 'label' => 'Devis'],
+            ['key' => 'expenses', 'label' => 'Depenses'],
+            ['key' => 'invoice_payments', 'label' => 'Paiements facture'],
             ['key' => 'basic_reports', 'label' => 'Rapports de base'],
             ['key' => 'advanced_reports', 'label' => 'Rapports avancés'],
             ['key' => 'bank_accounts', 'label' => 'Comptes bancaires'],
             ['key' => 'ocr', 'label' => 'OCR documents'],
-            ['key' => 'purchase_orders', 'label' => 'Bons de commande'],
+            ['key' => 'analytic_accounting', 'label' => 'Comptabilite analytique'],
             ['key' => 'multi_currency', 'label' => 'Multi-devise'],
-            ['key' => 'api_access', 'label' => 'Accès API'],
-            ['key' => 'coa_customization', 'label' => 'Personnalisation plan comptable'],
+            ['key' => 'management_predictions', 'label' => 'Predictions de gestion'],
+            ['key' => 'auto_counterpart_rules', 'label' => 'Regles de contrepartie auto'],
+            ['key' => 'journal_permissions', 'label' => 'Permissions de journaux'],
+            ['key' => 'firm_workspace', 'label' => 'Espace cabinet'],
+            ['key' => 'priority_support', 'label' => 'Support prioritaire'],
         ]);
     }
 

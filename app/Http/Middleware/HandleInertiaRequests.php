@@ -76,6 +76,23 @@ class HandleInertiaRequests extends Middleware
                     ] : null,
                 ];
             },
+            'company_switcher' => function () use ($request) {
+                if (! $request->user()) {
+                    return [];
+                }
+
+                return $request->user()
+                    ->companies()
+                    ->whereNull('company_users.revoked_at')
+                    ->orderBy('companies.raison_sociale')
+                    ->get(['companies.id', 'companies.raison_sociale'])
+                    ->map(fn ($company) => [
+                        'id' => $company->id,
+                        'raison_sociale' => $company->raison_sociale,
+                    ])
+                    ->values()
+                    ->all();
+            },
             'allowed_features' => function () use ($request) {
                 if (! $request->user() || ! app()->has('currentCompany')) {
                     return [];

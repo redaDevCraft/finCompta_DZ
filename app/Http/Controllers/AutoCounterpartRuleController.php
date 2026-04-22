@@ -88,10 +88,17 @@ class AutoCounterpartRuleController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'trigger_account_id' => ['required', 'uuid', Rule::exists('accounts', 'id')->where(fn ($q) => $q->where('company_id', $companyId))],
             'trigger_direction' => ['required', 'in:debit,credit'],
-            'counterpart_account_id' => ['required', 'uuid', Rule::exists('accounts', 'id')->where(fn ($q) => $q->where('company_id', $companyId))],
+            'counterpart_account_id' => [
+                'required',
+                'uuid',
+                'different:trigger_account_id',
+                Rule::exists('accounts', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'counterpart_direction' => ['required', 'in:debit,credit'],
             'priority' => ['nullable', 'integer', 'min:0', 'max:9999'],
             'is_active' => ['required', 'boolean'],
+        ], [
+            'counterpart_account_id.different' => 'Le compte de contrepartie doit être différent du compte déclencheur.',
         ]);
     }
 }

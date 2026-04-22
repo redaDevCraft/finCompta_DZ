@@ -22,6 +22,30 @@ function formatDzd(n) {
     return new Intl.NumberFormat('fr-DZ').format(n) + ' DZD';
 }
 
+const FEATURE_LABELS = {
+    invoices: 'Invoices & credit notes',
+    quotes: 'Quotes & conversions',
+    expenses: 'Expense management',
+    invoice_payments: 'Payment tracking & status',
+    basic_reports: 'VAT & basic reports',
+    bank_accounts: 'Bank import & reconciliation',
+    advanced_reports: 'Advanced reports (Bilan, analytic)',
+    analytic_accounting: 'Analytic accounting',
+    multi_currency: 'Multi-currency',
+    management_predictions: 'Budget vs actual',
+    auto_counterpart_rules: 'Auto journal counterpart rules',
+    ocr: 'OCR document scanning',
+    journal_permissions: 'Per-journal access control',
+    firm_workspace: 'Accounting firm workspace',
+    priority_support: 'Priority support',
+};
+
+function segmentLabel(segment) {
+    if (segment === 'solo') return 'For solo';
+    if (segment === 'firm') return 'For firms';
+    return 'For SMEs';
+}
+
 function PlanCard({ plan, cycle, trialDays, featured }) {
     const price = cycle === 'yearly' ? plan.yearly_price_dzd : plan.monthly_price_dzd;
     const cycleLabel = cycle === 'yearly' ? '/an' : '/mois';
@@ -38,11 +62,12 @@ function PlanCard({ plan, cycle, trialDays, featured }) {
             {featured && (
                 <div className="mb-3 inline-flex w-fit items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
                     <Sparkles className="h-3 w-3" />
-                    Le plus populaire
+                    Recommended
                 </div>
             )}
             <h3 className="text-xl font-semibold text-slate-900">{plan.name}</h3>
             <p className="mt-1 text-sm text-slate-500">{plan.tagline}</p>
+            <p className="mt-1 text-xs font-medium text-indigo-700">{segmentLabel(plan.segment)}</p>
 
             <div className="mt-6 flex items-baseline gap-1">
                 <span className="text-4xl font-bold text-slate-900">{formatDzd(price)}</span>
@@ -51,12 +76,17 @@ function PlanCard({ plan, cycle, trialDays, featured }) {
             <p className="mt-1 text-xs text-slate-500">
                 {trialDays} jours d’essai gratuit · sans carte
             </p>
+            <p className="mt-2 text-xs text-slate-600">
+                {plan.max_companies == null ? 'Unlimited companies' : `Up to ${plan.max_companies} companies`}
+                {' · '}
+                {plan.max_users == null ? 'Unlimited users' : `Up to ${plan.max_users} users`}
+            </p>
 
             <ul className="mt-6 flex-1 space-y-2">
                 {(plan.features ?? []).map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm text-slate-700">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                        <span>{f}</span>
+                        <span>{FEATURE_LABELS[f] ?? f}</span>
                     </li>
                 ))}
             </ul>
@@ -70,7 +100,7 @@ function PlanCard({ plan, cycle, trialDays, featured }) {
                         : 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50',
                 ].join(' ')}
             >
-                Commencer l’essai
+                Démarrer mon essai gratuit
                 <ArrowRight className="h-4 w-4" />
             </Link>
         </div>
@@ -113,23 +143,23 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
     const trustItems = [
         {
             icon: BadgeCheck,
-            title: 'Conformité SCF',
-            text: 'Plan comptable, journaux et clôture alignés sur les pratiques SCF pour PME algériennes.',
+            title: 'Conformité SCF & obligations',
+            text: 'Plan comptable SCF, journaux et clôture alignés sur les pratiques locales. Préparez TVA G50 et états financiers sans ressaisie.',
         },
         {
             icon: FileText,
             title: 'Facturation compatible DGI',
-            text: 'Numérotation, mentions légales et exports prêts pour vos obligations fiscales.',
+            text: 'Numérotation continue, mentions obligatoires et exports prêts pour dépôt à la DGI.',
         },
         {
             icon: ShieldCheck,
-            title: 'Sauvegardes chiffrées',
-            text: 'Sauvegardes quotidiennes et export des données à tout moment, sans verrouillage.',
+            title: 'Sauvegardes & sécurité',
+            text: 'Sauvegardes quotidiennes, chiffrement côté serveur et possibilité d’export complet de vos données à tout moment.',
         },
         {
             icon: Landmark,
-            title: 'Paiement local',
-            text: 'Abonnement via Chargily (Edahabia/CIB) ou bon de commande avec validation manuelle.',
+            title: 'Paiement local sécurisé',
+            text: 'Encaissement via Chargily (CIB / Edahabia) ou bon de commande avec validation manuelle.',
         },
     ];
     const features = [
@@ -249,22 +279,26 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                     <div className="mx-auto grid max-w-6xl items-center gap-10 px-6 py-16 md:grid-cols-2 md:py-24">
                         <div>
                             <div className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-                                <Sparkles className="h-3 w-3" /> Conçu pour l’Algérie — SCF, TVA, G50
+                                <Sparkles className="h-3 w-3" /> Marre d’Excel, des clés USB et des logiciels figés ?
                             </div>
                             <h1 className="mt-5 text-4xl font-bold leading-tight tracking-tight md:text-5xl">
                                 {heroTitle}
                             </h1>
                             <p className="mt-4 max-w-xl text-lg text-slate-600">
-                                {brand?.tagline ?? 'Centralize invoicing, expenses, bank reconciliation, journal posting and TVA G50 in one secure cloud platform.'}
-                                {' '}Accessible anytime, from any device, for business owners and accounting teams.
-                                {' '}Démarrez avec <strong>{trialDays} jours d’essai gratuit</strong>, aucune carte requise.
+                                Arrêtez de jongler entre fichiers Excel, clés USB et logiciels installés sur un seul PC.
+                                Centralisez factures, dépenses, rapprochement bancaire, journaux et TVA G50 dans un espace
+                                cloud sécurisé pensé pour les PME et cabinets algériens.
+                                Démarrez avec <strong>{trialDays} jours d’essai gratuit</strong> — aucune carte requise, annulation à tout moment.
+                            </p>
+                            <p className="mt-2 max-w-xl text-sm text-slate-500">
+                                Conçu pour l’Algérie — SCF, TVA, G50.
                             </p>
                             <div className="mt-8 flex flex-wrap gap-3">
                                 <Link
                                     href={`/start-trial?plan=${plans[1]?.code ?? plans[0]?.code ?? 'pro'}&cycle=monthly`}
                                     className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-base font-medium text-white shadow-sm transition hover:bg-indigo-700"
                                 >
-                                    Commencer l’essai gratuit
+                                    Démarrer mon essai gratuit
                                     <ArrowRight className="h-4 w-4" />
                                 </Link>
                                 <a
@@ -274,6 +308,9 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                                     Voir les tarifs
                                 </a>
                             </div>
+                            <p className="mt-2 text-xs text-slate-500">
+                                Aucun engagement long terme · Export de vos données à tout moment · Support par e-mail en français
+                            </p>
                             <p className="mt-4 flex items-center gap-2 text-xs text-slate-500">
                                 <ShieldCheck className="h-4 w-4 text-emerald-500" />
                                 Paiement sécurisé via Chargily (Edahabia / CIB) ou bon de commande.
@@ -333,6 +370,37 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                                     </ul>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </section>
+
+                <section id="temoignages" className="border-t border-slate-100 bg-white py-20">
+                    <div className="mx-auto max-w-6xl px-6">
+                        <h2 className="text-center text-3xl font-bold">
+                            Des entreprises algériennes passent déjà à la compta cloud
+                        </h2>
+                        <p className="mx-auto mt-3 max-w-2xl text-center text-slate-600">
+                            Des équipes PME et cabinets réduisent le temps de clôture et sécurisent leur TVA G50 avec FinCompta DZ.
+                        </p>
+                        <div className="mt-10 grid gap-6 md:grid-cols-3">
+                            {[
+                                '“FinCompta DZ nous a fait gagner plusieurs heures par semaine sur la TVA G50 et le rapprochement bancaire.”',
+                                '“On a enfin un espace unique entre gérant et cabinet, sans versions Excel contradictoires.”',
+                                '“Le suivi des factures clients et des dépenses est devenu clair, même à distance.”',
+                            ].map((quote) => (
+                                <div key={quote} className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+                                    <p className="text-sm text-slate-700">{quote}</p>
+                                    <div className="mt-4 text-xs font-semibold text-slate-900">
+                                        Client FinCompta DZ · PME Algérie
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-xs uppercase tracking-wide text-slate-500">
+                            <span>PME services</span>
+                            <span>Cabinets comptables</span>
+                            <span>Commerce de détail</span>
+                            <span>BTP</span>
                         </div>
                     </div>
                 </section>
@@ -428,6 +496,32 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                     </div>
                 </section>
 
+                <section className="border-t border-slate-100 bg-white py-20">
+                    <div className="mx-auto max-w-6xl px-6">
+                        <h2 className="text-center text-3xl font-bold">Avant / Après FinCompta DZ</h2>
+                        <div className="mt-10 grid gap-6 md:grid-cols-2">
+                            <div className="rounded-2xl border border-rose-100 bg-rose-50 p-6">
+                                <h3 className="font-semibold text-rose-900">Avant</h3>
+                                <ul className="mt-3 space-y-1.5 text-sm text-rose-900/90">
+                                    <li>- Fichiers Excel dispersés et versions différentes.</li>
+                                    <li>- Échanges de sauvegardes par clé USB ou e-mail.</li>
+                                    <li>- TVA G50 préparée à la main, risque d’erreur élevé.</li>
+                                    <li>- Journaux et balances difficiles à consolider.</li>
+                                </ul>
+                            </div>
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-6">
+                                <h3 className="font-semibold text-emerald-900">Avec FinCompta DZ</h3>
+                                <ul className="mt-3 space-y-1.5 text-sm text-emerald-900/90">
+                                    <li>- Un espace unique pour factures, dépenses et banque.</li>
+                                    <li>- Accès cloud partagé entre gérant et cabinet comptable.</li>
+                                    <li>- TVA G50 calculée à partir de vos écritures SCF.</li>
+                                    <li>- Journaux, grand livre et balances exportables en un clic.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <section id="societe" className="border-t border-slate-100 bg-slate-50 py-20">
                     <div className="mx-auto max-w-6xl px-6">
                         <h2 className="text-center text-3xl font-bold">Confiance & conformité pour l’Algérie</h2>
@@ -452,6 +546,9 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                         <p className="mx-auto mt-3 max-w-2xl text-center text-slate-600">
                             {trialDays} jours d’essai gratuit sur tous les plans. Sans engagement long terme, annulation à tout moment.
                             Paiement mensuel ou annuel via Edahabia/CIB (Chargily) ou virement sur bon de commande.
+                        </p>
+                        <p className="mt-1 text-center text-xs text-slate-500">
+                            Aucun frais d’installation · Annulation à tout moment · Export complet de vos données si vous partez
                         </p>
 
                         <div className="mt-6 flex justify-center">
@@ -486,7 +583,7 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                                     plan={plan}
                                     cycle={cycle}
                                     trialDays={trialDays}
-                                    featured={idx === 1}
+                                    featured={Boolean(plan.is_default)}
                                 />
                             ))}
                         </div>
@@ -525,7 +622,7 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-indigo-700"
                         >
                             <LayoutDashboard className="h-4 w-4" />
-                            Essayer gratuitement {trialDays} jours
+                            Démarrer mon essai gratuit
                         </Link>
                     </div>
                 </section>
@@ -572,8 +669,9 @@ export default function Home({ plans = [], trialDays = 3, brand }) {
                             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Société & légal</h3>
                             <ul className="mt-3 space-y-1.5">
                                 <li><a href="#societe" className="hover:text-slate-900">À propos</a></li>
-                                <li><Link href="/legal/policy" className="hover:text-slate-900">Politique de confidentialité</Link></li>
-                                <li><a href="#pricing" className="hover:text-slate-900">Conditions d’abonnement</a></li>
+                                <li><Link href={route('legal.privacy')} className="hover:text-slate-900">Politique de confidentialité</Link></li>
+                                <li><Link href={route('legal.terms')} className="hover:text-slate-900">Conditions générales</Link></li>
+                                <li><Link href={route('legal.refund-policy')} className="hover:text-slate-900">Politique de remboursement</Link></li>
                             </ul>
                         </div>
                     </div>

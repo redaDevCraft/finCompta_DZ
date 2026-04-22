@@ -20,6 +20,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\InvoicePaymentController;
 use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\LedgerController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\LetteringController;
 use App\Http\Controllers\ManagementPredictionController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuoteController;
 use App\Http\Controllers\ReconciliationController;
 use App\Http\Controllers\RefundRequestController;
 use App\Http\Controllers\ReportController;
@@ -228,20 +230,56 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     /* ── Invoices ───────────────────────────────────────────────────── */
     Route::resource('invoices', InvoiceController::class)->except(['destroy']);
 
+    /* ── Quotes ─────────────────────────────────────────────────────── */
+    Route::resource('quotes', QuoteController::class)->except(['destroy'])
+        ->middleware('plan_feature:quotes');
+    Route::post('/quotes/{quote}/send', [QuoteController::class, 'send'])
+        ->middleware('plan_feature:quotes')
+        ->middleware('role:owner,accountant,admin')
+        ->name('quotes.send');
+    Route::post('/quotes/{quote}/accept', [QuoteController::class, 'accept'])
+        ->middleware('plan_feature:quotes')
+        ->middleware('role:owner,accountant,admin')
+        ->name('quotes.accept');
+    Route::post('/quotes/{quote}/reject', [QuoteController::class, 'reject'])
+        ->middleware('plan_feature:quotes')
+        ->middleware('role:owner,accountant,admin')
+        ->name('quotes.reject');
+    Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf'])
+        ->middleware('plan_feature:quotes')
+        ->name('quotes.pdf');
+    Route::post('/quotes/{quote}/convert-to-invoice', [QuoteController::class, 'convertToInvoice'])
+        ->middleware('plan_feature:quotes')
+        ->middleware('role:owner,accountant,admin')
+        ->name('quotes.convert-to-invoice');
+
     Route::post('/invoices/{invoice}/issue', [InvoiceController::class, 'issue'])
-        ->middleware('role:owner,accountant')
+        ->middleware('role:owner,accountant,admin')
         ->name('invoices.issue');
 
     Route::post('/invoices/{invoice}/void', [InvoiceController::class, 'void'])
-        ->middleware('role:owner,accountant')
+        ->middleware('role:owner,accountant,admin')
         ->name('invoices.void');
 
     Route::post('/invoices/{invoice}/credit', [InvoiceController::class, 'credit'])
-        ->middleware('role:owner,accountant')
+        ->middleware('role:owner,accountant,admin')
         ->name('invoices.credit');
 
     Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])
         ->name('invoices.pdf');
+
+    Route::post('/invoices/{invoice}/payments', [InvoicePaymentController::class, 'store'])
+        ->middleware('plan_feature:invoice_payments')
+        ->middleware('role:owner,accountant,admin')
+        ->name('invoices.payments.store');
+    Route::match(['put', 'patch'], '/invoices/{invoice}/payments/{payment}', [InvoicePaymentController::class, 'update'])
+        ->middleware('plan_feature:invoice_payments')
+        ->middleware('role:owner,accountant,admin')
+        ->name('invoices.payments.update');
+    Route::delete('/invoices/{invoice}/payments/{payment}', [InvoicePaymentController::class, 'destroy'])
+        ->middleware('plan_feature:invoice_payments')
+        ->middleware('role:owner,admin')
+        ->name('invoices.payments.destroy');
 
     /* ── Expenses ───────────────────────────────────────────────────── */
     Route::post('/expenses/{expense}/confirm', [ExpenseController::class, 'confirm'])
@@ -412,14 +450,18 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->middleware('throttle:reports-queue')
         ->name('reports.analytic-trial-balance.export');
     Route::get('/reports/predictions', [ManagementPredictionController::class, 'index'])
+        ->middleware('plan_feature:management_predictions')
         ->name('reports.predictions');
     Route::post('/reports/predictions/toggle', [ManagementPredictionController::class, 'toggle'])
+        ->middleware('plan_feature:management_predictions')
         ->middleware('role:owner,accountant')
         ->name('reports.predictions.toggle');
     Route::post('/reports/predictions', [ManagementPredictionController::class, 'store'])
+        ->middleware('plan_feature:management_predictions')
         ->middleware('role:owner,accountant')
         ->name('reports.predictions.store');
     Route::delete('/reports/predictions/{prediction}', [ManagementPredictionController::class, 'destroy'])
+        ->middleware('plan_feature:management_predictions')
         ->middleware('role:owner')
         ->name('reports.predictions.destroy');
 
@@ -438,51 +480,69 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     Route::match(['put', 'patch'], '/settings/accounts/{account}/analytic-default', [SettingsController::class, 'updateAccountAnalyticDefault'])
         ->middleware('role:owner,accountant')
         ->name('settings.accounts.analytic-default.update');
-    Route::get('/settings/analytics', [SettingsController::class, 'analytics'])->name('settings.analytics');
+    Route::get('/settings/analytics', [SettingsController::class, 'analytics'])
+        ->middleware('plan_feature:analytic_accounting')
+        ->name('settings.analytics');
     Route::get('/settings/currencies', [SettingsController::class, 'currencies'])
+        ->middleware('plan_feature:multi_currency')
         ->name('settings.currencies');
     Route::post('/settings/currencies', [SettingsController::class, 'storeCurrency'])
+        ->middleware('plan_feature:multi_currency')
         ->middleware('role:owner,accountant')
         ->name('settings.currencies.store');
     Route::match(['put', 'patch'], '/settings/currencies/{currency}', [SettingsController::class, 'updateCurrency'])
+        ->middleware('plan_feature:multi_currency')
         ->middleware('role:owner,accountant')
         ->name('settings.currencies.update');
     Route::delete('/settings/currencies/{currency}', [SettingsController::class, 'destroyCurrency'])
+        ->middleware('plan_feature:multi_currency')
         ->middleware('role:owner')
         ->name('settings.currencies.destroy');
     Route::post('/settings/exchange-rates', [SettingsController::class, 'storeExchangeRate'])
+        ->middleware('plan_feature:multi_currency')
         ->middleware('role:owner,accountant')
         ->name('settings.exchange-rates.store');
     Route::delete('/settings/exchange-rates/{exchangeRate}', [SettingsController::class, 'destroyExchangeRate'])
+        ->middleware('plan_feature:multi_currency')
         ->middleware('role:owner')
         ->name('settings.exchange-rates.destroy');
     Route::get('/settings/auto-counterpart-rules', [AutoCounterpartRuleController::class, 'index'])
+        ->middleware('plan_feature:auto_counterpart_rules')
         ->name('settings.auto-counterpart-rules');
     Route::post('/settings/auto-counterpart-rules', [AutoCounterpartRuleController::class, 'store'])
+        ->middleware('plan_feature:auto_counterpart_rules')
         ->middleware('role:owner,accountant')
         ->name('settings.auto-counterpart-rules.store');
     Route::match(['put', 'patch'], '/settings/auto-counterpart-rules/{rule}', [AutoCounterpartRuleController::class, 'update'])
+        ->middleware('plan_feature:auto_counterpart_rules')
         ->middleware('role:owner,accountant')
         ->name('settings.auto-counterpart-rules.update');
     Route::delete('/settings/auto-counterpart-rules/{rule}', [AutoCounterpartRuleController::class, 'destroy'])
+        ->middleware('plan_feature:auto_counterpart_rules')
         ->middleware('role:owner')
         ->name('settings.auto-counterpart-rules.destroy');
     Route::post('/settings/analytics/axes', [SettingsController::class, 'storeAnalyticAxis'])
+        ->middleware('plan_feature:analytic_accounting')
         ->middleware('role:owner,accountant')
         ->name('settings.analytics.axes.store');
     Route::match(['put', 'patch'], '/settings/analytics/axes/{axis}', [SettingsController::class, 'updateAnalyticAxis'])
+        ->middleware('plan_feature:analytic_accounting')
         ->middleware('role:owner,accountant')
         ->name('settings.analytics.axes.update');
     Route::delete('/settings/analytics/axes/{axis}', [SettingsController::class, 'destroyAnalyticAxis'])
+        ->middleware('plan_feature:analytic_accounting')
         ->middleware('role:owner')
         ->name('settings.analytics.axes.destroy');
     Route::post('/settings/analytics/sections', [SettingsController::class, 'storeAnalyticSection'])
+        ->middleware('plan_feature:analytic_accounting')
         ->middleware('role:owner,accountant')
         ->name('settings.analytics.sections.store');
     Route::match(['put', 'patch'], '/settings/analytics/sections/{section}', [SettingsController::class, 'updateAnalyticSection'])
+        ->middleware('plan_feature:analytic_accounting')
         ->middleware('role:owner,accountant')
         ->name('settings.analytics.sections.update');
     Route::delete('/settings/analytics/sections/{section}', [SettingsController::class, 'destroyAnalyticSection'])
+        ->middleware('plan_feature:analytic_accounting')
         ->middleware('role:owner')
         ->name('settings.analytics.sections.destroy');
 

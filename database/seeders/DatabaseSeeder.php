@@ -71,6 +71,10 @@ class DatabaseSeeder extends Seeder
             $this->callWith(DemoDataSeeder::class, [
                 'companyId' => $company->id,
             ]);
+
+            if ((bool) env('HEAVY_SEED', false)) {
+                $this->call(HeavyTestingSeeder::class);
+            }
         }
     }
 }

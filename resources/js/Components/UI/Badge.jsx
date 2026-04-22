@@ -23,6 +23,30 @@ const statusMap = {
         label: 'Remplacée',
         className: 'bg-purple-100 text-purple-700 ring-purple-200',
     },
+    sent: {
+        label: 'Envoyé',
+        className: 'bg-blue-100 text-blue-700 ring-blue-200',
+    },
+    accepted: {
+        label: 'Accepté',
+        className: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
+    },
+    rejected: {
+        label: 'Rejeté',
+        className: 'bg-rose-100 text-rose-700 ring-rose-200',
+    },
+    expired: {
+        label: 'Expiré',
+        className: 'bg-amber-100 text-amber-700 ring-amber-200',
+    },
+    unpaid: {
+        label: 'Impayée',
+        className: 'bg-slate-100 text-slate-700 ring-slate-200',
+    },
+    overdue: {
+        label: 'En retard',
+        className: 'bg-rose-100 text-rose-700 ring-rose-200',
+    },
 };
 
 export default function Badge({ status }) {

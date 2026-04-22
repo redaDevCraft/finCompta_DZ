@@ -28,7 +28,8 @@ class OnboardingController extends Controller
             ->get([
                 'id', 'code', 'name', 'tagline',
                 'monthly_price_dzd', 'yearly_price_dzd',
-                'trial_days', 'features',
+                'trial_days', 'features', 'segment',
+                'max_companies', 'max_users', 'is_default',
             ]);
 
         return Inertia::render('Onboarding/Company', [
@@ -62,6 +63,13 @@ class OnboardingController extends Controller
         $plan = null;
         if (! empty($validated['plan_code'])) {
             $plan = Plan::query()->where('code', $validated['plan_code'])->where('is_active', true)->first();
+        }
+
+        $activeCompaniesCount = $user->companies()->whereNull('company_users.revoked_at')->count();
+        if ($plan && $plan->max_companies !== null && $activeCompaniesCount >= (int) $plan->max_companies) {
+            return redirect()
+                ->route('billing.index')
+                ->with('error', 'Votre plan permet au maximum '.$plan->max_companies.' societes. Merci de passer au plan superieur.');
         }
 
         $company = DB::transaction(function () use ($validated, $user, $subscriptions, $plan) {

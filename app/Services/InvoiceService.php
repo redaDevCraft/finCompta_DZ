@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Invoice;
 use App\Models\InvoiceSequence;
 use App\Models\JournalEntry;
+use App\Models\TaxRate;
 use App\Models\User;
 use App\Support\Cache\DashboardCache;
 use Carbon\Carbon;
@@ -66,8 +67,16 @@ class InvoiceService
             $vatBuckets = $this->tax->computeVatBuckets($computedLines);
 
             foreach ($vatBuckets as $bucket) {
+                $taxRateId = $this->resolveBucketTaxRateId($invoice, $computedLines, (float) $bucket['rate_pct']);
+                if (! $taxRateId) {
+                    throw new \RuntimeException(sprintf(
+                        'Aucun taux de taxe actif ne correspond à %.2f%% pour cette société.',
+                        (float) $bucket['rate_pct']
+                    ));
+                }
+
                 $invoice->vatBuckets()->create([
-                    'tax_rate_id' => $this->resolveBucketTaxRateId($computedLines, (float) $bucket['rate_pct']),
+                    'tax_rate_id' => $taxRateId,
                     'rate_pct' => $bucket['rate_pct'],
                     'base_ht' => $bucket['base_ht'],
                     'vat_amount' => $bucket['vat_amount'],
@@ -268,12 +277,33 @@ class InvoiceService
         });
     }
 
-    private function resolveBucketTaxRateId($computedLines, float $ratePct): ?string
+    private function resolveBucketTaxRateId(Invoice $invoice, $computedLines, float $ratePct): ?string
     {
         $match = $computedLines->first(function ($line) use ($ratePct) {
             return (float) ($line['vat_rate_pct'] ?? 0) === $ratePct;
         });
 
-        return $match['tax_rate_id'] ?? null;
+        $lineTaxRateId = $match['tax_rate_id'] ?? null;
+        if ($lineTaxRateId) {
+            return $lineTaxRateId;
+        }
+
+        $normalizedRate = number_format($ratePct, 2, '.', '');
+
+        $companyRateId = TaxRate::query()
+            ->where('company_id', $invoice->company_id)
+            ->where('is_active', true)
+            ->where('rate_percent', $normalizedRate)
+            ->value('id');
+
+        if ($companyRateId) {
+            return $companyRateId;
+        }
+
+        return TaxRate::query()
+            ->whereNull('company_id')
+            ->where('is_active', true)
+            ->where('rate_percent', $normalizedRate)
+            ->value('id');
     }
 }
