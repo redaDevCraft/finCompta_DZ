@@ -38,6 +38,7 @@ final class ReportRunService
     private const JOB_MAP = [
         ReportRun::TYPE_BILAN_PDF => \App\Jobs\Reports\GenerateBilanPdfJob::class,
         ReportRun::TYPE_VAT_XLSX => \App\Jobs\Reports\GenerateVatXlsxJob::class,
+        ReportRun::TYPE_ANALYTIC_TRIAL_BALANCE_XLSX => \App\Jobs\Reports\GenerateAnalyticTrialBalanceXlsxJob::class,
     ];
 
     /**

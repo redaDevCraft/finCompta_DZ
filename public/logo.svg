@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="96" fill="#EFF6FF"/>
+  <circle cx="176" cy="196" r="92" fill="#2563EB"/>
+  <path d="M144 156H228V178H166V196H220V218H166V252H144V156Z" fill="white"/>
+  <path d="M208 156H238C269 156 290 175 290 205C290 236 269 256 238 256H208V156ZM238 234C255 234 268 223 268 205C268 188 255 178 238 178H230V234H238Z" fill="white"/>
+  <text x="256" y="360" text-anchor="middle" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700">FinCompta DZ</text>
+  <text x="256" y="398" text-anchor="middle" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="20">Logo placeholder</text>
+</svg>

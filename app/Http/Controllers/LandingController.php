@@ -45,6 +45,42 @@ class LandingController extends Controller
         ]);
     }
 
+    public function terms(): Response
+    {
+        return Inertia::render('Legal/Policy', [
+            'title' => 'Conditions Generales',
+            'sections' => [
+                'SLA cible: 99.5% de disponibilite mensuelle.',
+                'Les abonnements sont actives apres paiement confirme.',
+                'Les litiges de facturation sont traites sous 5 jours ouvres.',
+            ],
+        ]);
+    }
+
+    public function privacy(): Response
+    {
+        return Inertia::render('Legal/Policy', [
+            'title' => 'Politique de Confidentialite',
+            'sections' => [
+                'Traitement des donnees conforme a la loi algerienne 18-07.',
+                'Consentement requis a l inscription pour le traitement des donnees.',
+                'Procedure de suppression des donnees disponible sur demande.',
+            ],
+        ]);
+    }
+
+    public function refundPolicy(): Response
+    {
+        return Inertia::render('Legal/Policy', [
+            'title' => 'Politique de Remboursement',
+            'sections' => [
+                'Activation echouee apres paiement: activation ou remboursement prioritaire.',
+                'Double debit confirme: remboursement integral.',
+                'Usage normal du service: remboursement non automatique, examen au cas par cas.',
+            ],
+        ]);
+    }
+
     /**
      * Public "start trial" entry:
      *   - unauthenticated -> Google OAuth with preserved intent

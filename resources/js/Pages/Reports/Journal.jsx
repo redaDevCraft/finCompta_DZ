@@ -32,6 +32,7 @@ export default function Journal({
     filters = {},
     journalOptions = [],
     statusOptions = [],
+    lockMeta = {},
 }) {
     const { confirm } = useNotification();
     const [status, setStatus] = useState(filters.status ?? '');
@@ -126,6 +127,11 @@ export default function Journal({
                         <p className="mt-1 text-sm text-slate-600">
                             Consultez et validez les écritures comptables.
                         </p>
+                        {lockMeta?.locked_until_date && (
+                            <p className="mt-1 text-xs text-rose-700">
+                                Verrouillage actif jusqu&apos;au {formatDate(lockMeta.locked_until_date)}.
+                            </p>
+                        )}
                     </div>
                     <Link
                         href={route('ledger.entries.create')}
@@ -267,7 +273,12 @@ export default function Journal({
                                                             >
                                                                 {statusBadge.label}
                                                             </span>
-                                                            {entry.status === 'draft' && (
+                                                            {entry.is_locked && (
+                                                                <span className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700">
+                                                                    Verrouillée
+                                                                </span>
+                                                            )}
+                                                            {entry.status === 'draft' && !entry.is_locked && (
                                                                 <>
                                                                     <button
                                                                         type="button"
@@ -303,6 +314,27 @@ export default function Journal({
                                                                                 Supprimer
                                                                             </button>
                                                                         </>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                            {!entry.is_date_locked && (
+                                                                <>
+                                                                    {entry.is_entry_locked ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => router.post(route('ledger.entries.unlock', entry.id), {}, { preserveScroll: true })}
+                                                                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                                                        >
+                                                                            Déverrouiller
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => router.post(route('ledger.entries.lock', entry.id), {}, { preserveScroll: true })}
+                                                                            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                                                        >
+                                                                            Verrouiller
+                                                                        </button>
                                                                     )}
                                                                 </>
                                                             )}

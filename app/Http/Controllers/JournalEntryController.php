@@ -3,8 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\AutoCounterpartRule;
+use App\Models\Currency;
 use App\Models\Journal;
 use App\Models\JournalEntry;
+use App\Models\AnalyticSection;
+use App\Services\EntryLockService;
+use App\Services\JournalPermissionService;
 use App\Services\JournalService;
 use App\Support\Cache\DashboardCache;
 use Carbon\Carbon;
@@ -21,7 +26,11 @@ use Inertia\Response;
 
 class JournalEntryController extends Controller
 {
-    public function __construct(protected JournalService $journalService) {}
+    public function __construct(
+        protected JournalService $journalService,
+        protected EntryLockService $entryLockService,
+        protected JournalPermissionService $journalPermissionService,
+    ) {}
 
     public function create(Request $request): Response
     {
@@ -44,6 +53,9 @@ class JournalEntryController extends Controller
             'journals' => $this->loadJournals($company),
             'prefillAccounts' => [],
             'prefillContacts' => [],
+            'analyticSections' => $this->loadAnalyticSections($company),
+            'autoCounterpartRules' => $this->loadAutoCounterpartRules($company),
+            'currencies' => $this->loadCurrencies($company),
         ]);
     }
 
@@ -59,6 +71,11 @@ class JournalEntryController extends Controller
                 ->where('id', $validated['journal_id'])
                 ->where('is_active', true)
                 ->firstOrFail();
+            abort_unless(
+                $this->journalPermissionService->canPost(request()->user(), $journal),
+                403,
+                'Vous n’êtes pas autorisé à comptabiliser dans ce journal.'
+            );
 
             $period = $journalService->getOrCreatePeriod(
                 $company,
@@ -86,6 +103,11 @@ class JournalEntryController extends Controller
                     'id' => (string) Str::uuid(),
                     'account_id' => $line['account_id'],
                     'contact_id' => $line['contact_id'] ?? null,
+                    'analytic_section_id' => $line['analytic_section_id'] ?? null,
+                    'currency_id' => $line['currency_id'] ?? null,
+                    'exchange_rate' => $line['exchange_rate'] ?? null,
+                    'amount_foreign_debit' => $line['amount_foreign_debit'] ?? null,
+                    'amount_foreign_credit' => $line['amount_foreign_credit'] ?? null,
                     'description' => $line['description'] ?? null,
                     'debit' => (float) ($line['debit'] ?? 0),
                     'credit' => (float) ($line['credit'] ?? 0),
@@ -120,6 +142,7 @@ class JournalEntryController extends Controller
     public function edit(JournalEntry $entry): Response
     {
         $this->authorizeEntry($entry);
+        abort_if($this->entryLockService->isLocked($entry), 422, 'Cette écriture est verrouillée.');
 
         abort_if($entry->status !== 'draft', 422, 'Seules les écritures en brouillon sont modifiables.');
 
@@ -159,6 +182,11 @@ class JournalEntryController extends Controller
                         'id' => $line->id,
                         'account_id' => $line->account_id,
                         'contact_id' => $line->contact_id,
+                        'analytic_section_id' => $line->analytic_section_id,
+                        'currency_id' => $line->currency_id,
+                        'exchange_rate' => $line->exchange_rate !== null ? (float) $line->exchange_rate : null,
+                        'amount_foreign_debit' => $line->amount_foreign_debit !== null ? (float) $line->amount_foreign_debit : null,
+                        'amount_foreign_credit' => $line->amount_foreign_credit !== null ? (float) $line->amount_foreign_credit : null,
                         'description' => $line->description,
                         'debit' => (float) $line->debit,
                         'credit' => (float) $line->credit,
@@ -168,6 +196,9 @@ class JournalEntryController extends Controller
             'journals' => $this->loadJournals($company),
             'prefillAccounts' => $prefillAccounts,
             'prefillContacts' => $prefillContacts,
+            'analyticSections' => $this->loadAnalyticSections($company),
+            'autoCounterpartRules' => $this->loadAutoCounterpartRules($company),
+            'currencies' => $this->loadCurrencies($company),
             'isEdit' => true,
         ]);
     }
@@ -175,6 +206,7 @@ class JournalEntryController extends Controller
     public function update(Request $request, JournalEntry $entry, JournalService $journalService): RedirectResponse
     {
         $this->authorizeEntry($entry);
+        abort_if($this->entryLockService->isLocked($entry), 422, 'Cette écriture est verrouillée.');
 
         abort_if($entry->status !== 'draft', 422, 'Seules les écritures en brouillon sont modifiables.');
 
@@ -188,6 +220,11 @@ class JournalEntryController extends Controller
                 ->where('id', $validated['journal_id'])
                 ->where('is_active', true)
                 ->firstOrFail();
+            abort_unless(
+                $this->journalPermissionService->canPost(request()->user(), $journal),
+                403,
+                'Vous n’êtes pas autorisé à comptabiliser dans ce journal.'
+            );
 
             $period = $journalService->getOrCreatePeriod(
                 $company,
@@ -210,6 +247,11 @@ class JournalEntryController extends Controller
                     'id' => (string) Str::uuid(),
                     'account_id' => $line['account_id'],
                     'contact_id' => $line['contact_id'] ?? null,
+                    'analytic_section_id' => $line['analytic_section_id'] ?? null,
+                    'currency_id' => $line['currency_id'] ?? null,
+                    'exchange_rate' => $line['exchange_rate'] ?? null,
+                    'amount_foreign_debit' => $line['amount_foreign_debit'] ?? null,
+                    'amount_foreign_credit' => $line['amount_foreign_credit'] ?? null,
                     'description' => $line['description'] ?? null,
                     'debit' => (float) ($line['debit'] ?? 0),
                     'credit' => (float) ($line['credit'] ?? 0),
@@ -241,12 +283,14 @@ class JournalEntryController extends Controller
     public function lines(JournalEntry $entry): JsonResponse
     {
         $this->authorizeEntry($entry);
+        abort_if($this->entryLockService->isLocked($entry), 422, 'Cette écriture est verrouillée.');
 
         $entry->load([
             'lines' => function ($query) {
                 $query->with([
                     'account:id,code,label',
                     'contact:id,display_name',
+                    'analyticSection:id,code,name,analytic_axis_id',
                 ])->orderBy('sort_order');
             },
         ]);
@@ -259,6 +303,10 @@ class JournalEntryController extends Controller
                 'debit' => (float) $line->debit,
                 'credit' => (float) $line->credit,
                 'sort_order' => $line->sort_order,
+                'currency_id' => $line->currency_id,
+                'exchange_rate' => $line->exchange_rate !== null ? (float) $line->exchange_rate : null,
+                'amount_foreign_debit' => $line->amount_foreign_debit !== null ? (float) $line->amount_foreign_debit : null,
+                'amount_foreign_credit' => $line->amount_foreign_credit !== null ? (float) $line->amount_foreign_credit : null,
                 'account' => $line->account ? [
                     'id' => $line->account->id,
                     'code' => $line->account->code,
@@ -268,6 +316,12 @@ class JournalEntryController extends Controller
                     'id' => $line->contact->id,
                     'display_name' => $line->contact->display_name,
                 ] : null,
+                'analytic_section' => $line->analyticSection ? [
+                    'id' => $line->analyticSection->id,
+                    'code' => $line->analyticSection->code,
+                    'name' => $line->analyticSection->name,
+                    'analytic_axis_id' => $line->analyticSection->analytic_axis_id,
+                ] : null,
             ])->values(),
         ]);
     }
@@ -275,6 +329,7 @@ class JournalEntryController extends Controller
     public function destroy(JournalEntry $entry): RedirectResponse
     {
         $this->authorizeEntry($entry);
+        abort_if($this->entryLockService->isLocked($entry), 422, 'Cette écriture est verrouillée.');
 
         abort_if($entry->status !== 'draft', 422, 'Seules les écritures en brouillon peuvent être supprimées.');
         abort_if($entry->source_type !== 'manual' && $entry->source_type !== null, 422, 'Cette écriture provient d’un document et ne peut être supprimée directement.');
@@ -296,6 +351,11 @@ class JournalEntryController extends Controller
         return [
             'account_id' => null,
             'contact_id' => null,
+            'analytic_section_id' => null,
+            'currency_id' => null,
+            'exchange_rate' => null,
+            'amount_foreign_debit' => null,
+            'amount_foreign_credit' => null,
             'description' => '',
             'debit' => 0,
             'credit' => 0,
@@ -307,9 +367,87 @@ class JournalEntryController extends Controller
         return Journal::withoutGlobalScopes()
             ->where('company_id', $company->id)
             ->where('is_active', true)
+            ->where(function ($query) {
+                $userId = request()->user()?->id;
+                $query
+                    ->whereNotExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('journal_user_permissions as jup_all')
+                            ->whereColumn('jup_all.journal_id', 'journals.id');
+                    })
+                    ->orWhereExists(function ($sub) use ($userId) {
+                        $sub->selectRaw('1')
+                            ->from('journal_user_permissions as jup')
+                            ->whereColumn('jup.journal_id', 'journals.id')
+                            ->where('jup.user_id', $userId)
+                            ->where('jup.can_post', true);
+                    });
+            })
             ->orderBy('position')
             ->orderBy('code')
-            ->get(['id', 'code', 'label', 'type', 'counterpart_account_id'])
+            ->get(['id', 'code', 'label', 'type', 'counterpart_account_id', 'allow_auto_counterpart'])
+            ->toArray();
+    }
+
+    private function loadAutoCounterpartRules(Company $company): array
+    {
+        return AutoCounterpartRule::query()
+            ->where('company_id', $company->id)
+            ->where('is_active', true)
+            ->orderBy('priority')
+            ->with(['triggerAccount:id,code,label', 'counterpartAccount:id,code,label'])
+            ->get()
+            ->map(fn (AutoCounterpartRule $rule) => [
+                'id' => $rule->id,
+                'name' => $rule->name,
+                'trigger_account_id' => $rule->trigger_account_id,
+                'trigger_direction' => $rule->trigger_direction,
+                'counterpart_account_id' => $rule->counterpart_account_id,
+                'counterpart_direction' => $rule->counterpart_direction,
+                'priority' => $rule->priority,
+                'trigger_account' => $rule->triggerAccount ? [
+                    'id' => $rule->triggerAccount->id,
+                    'code' => $rule->triggerAccount->code,
+                    'label' => $rule->triggerAccount->label,
+                ] : null,
+                'counterpart_account' => $rule->counterpartAccount ? [
+                    'id' => $rule->counterpartAccount->id,
+                    'code' => $rule->counterpartAccount->code,
+                    'label' => $rule->counterpartAccount->label,
+                ] : null,
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    private function loadAnalyticSections(Company $company): array
+    {
+        return AnalyticSection::query()
+            ->where('company_id', $company->id)
+            ->where('is_active', true)
+            ->with('axis:id,code,name')
+            ->orderBy('code')
+            ->get()
+            ->map(fn (AnalyticSection $section) => [
+                'id' => $section->id,
+                'code' => $section->code,
+                'name' => $section->name,
+                'analytic_axis_id' => $section->analytic_axis_id,
+                'axis_code' => $section->axis?->code,
+                'axis_name' => $section->axis?->name,
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    private function loadCurrencies(Company $company): array
+    {
+        return Currency::query()
+            ->where('company_id', $company->id)
+            ->where('is_active', true)
+            ->orderByDesc('is_base')
+            ->orderBy('code')
+            ->get(['id', 'code', 'name', 'decimals', 'is_base'])
             ->toArray();
     }
 
@@ -339,7 +477,20 @@ class JournalEntryController extends Controller
                 'uuid',
                 Rule::exists('contacts', 'id')->where('company_id', $company->id),
             ],
+            'lines.*.analytic_section_id' => [
+                'nullable',
+                'uuid',
+                Rule::exists('analytic_sections', 'id')->where('company_id', $company->id),
+            ],
             'lines.*.description' => ['nullable', 'string', 'max:500'],
+            'lines.*.currency_id' => [
+                'nullable',
+                'uuid',
+                Rule::exists('currencies', 'id')->where('company_id', $company->id),
+            ],
+            'lines.*.exchange_rate' => ['nullable', 'numeric', 'gt:0'],
+            'lines.*.amount_foreign_debit' => ['nullable', 'numeric', 'min:0'],
+            'lines.*.amount_foreign_credit' => ['nullable', 'numeric', 'min:0'],
             'lines.*.debit' => ['nullable', 'numeric', 'min:0'],
             'lines.*.credit' => ['nullable', 'numeric', 'min:0'],
             'post_immediately' => ['sometimes', 'boolean'],
@@ -372,6 +523,28 @@ class JournalEntryController extends Controller
                 ]);
             }
 
+            $fxDebit = (float) ($line['amount_foreign_debit'] ?? 0);
+            $fxCredit = (float) ($line['amount_foreign_credit'] ?? 0);
+            $hasFx = ! empty($line['currency_id']) || ! empty($line['exchange_rate']) || $fxDebit > 0 || $fxCredit > 0;
+
+            if ($hasFx && empty($line['currency_id'])) {
+                throw ValidationException::withMessages([
+                    "lines.{$i}.currency_id" => ['Sélectionnez une devise pour les montants en devise.'],
+                ]);
+            }
+
+            if ($hasFx && empty($line['exchange_rate'])) {
+                throw ValidationException::withMessages([
+                    "lines.{$i}.exchange_rate" => ['Saisir un taux de change strictement positif.'],
+                ]);
+            }
+
+            if ($fxDebit > 0 && $fxCredit > 0) {
+                throw ValidationException::withMessages([
+                    "lines.{$i}.amount_foreign_debit" => ['Une ligne ne peut avoir un débit et un crédit en devise en même temps.'],
+                ]);
+            }
+
             $totalDebit += $debit;
             $totalCredit += $credit;
         }
@@ -391,8 +564,15 @@ class JournalEntryController extends Controller
 
     private function authorizeEntry(JournalEntry $entry): void
     {
+        $journal = Journal::withoutGlobalScopes()
+            ->where('company_id', app('currentCompany')->id)
+            ->where('id', $entry->journal_id)
+            ->first();
+
         abort_unless(
-            $entry->company_id === app('currentCompany')->id,
+            $entry->company_id === app('currentCompany')->id
+                && $journal
+                && $this->journalPermissionService->canView(request()->user(), $journal),
             403,
             'Accès non autorisé à cette écriture.'
         );

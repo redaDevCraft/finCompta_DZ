@@ -5,10 +5,12 @@ use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\PaymentConfirmationController;
 use App\Http\Controllers\Admin\PlanFeatureController as AdminPlanFeatureController;
 use App\Http\Controllers\Admin\PlanController as AdminPlanController;
+use App\Http\Controllers\Admin\RefundRequestAdminController;
 use App\Http\Controllers\Admin\SubscriptionController as AdminSubscriptionController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Auth\GoogleOAuthController;
 use App\Http\Controllers\BankController;
+use App\Http\Controllers\AutoCounterpartRuleController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\CompanyController;
@@ -22,9 +24,11 @@ use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\LedgerController;
 use App\Http\Controllers\LetteringController;
+use App\Http\Controllers\ManagementPredictionController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReconciliationController;
+use App\Http\Controllers\RefundRequestController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportRunController;
 use App\Http\Controllers\SettingsController;
@@ -39,6 +43,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [LandingController::class, 'home'])->name('landing');
 Route::get('/pricing', [LandingController::class, 'pricing'])->name('landing.pricing');
 Route::get('/start-trial', [LandingController::class, 'startTrial'])->name('landing.start-trial');
+Route::get('/legal/terms', [LandingController::class, 'terms'])->name('legal.terms');
+Route::get('/legal/privacy', [LandingController::class, 'privacy'])->name('legal.privacy');
+Route::get('/legal/refund-policy', [LandingController::class, 'refundPolicy'])->name('legal.refund-policy');
 
 /*
 | Google OAuth (Socialite) — public, no auth.
@@ -80,6 +87,12 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/payments/{payment}/reject', [PaymentConfirmationController::class, 'reject'])
             ->middleware('spatie_permission:payments.confirm')
             ->name('payments.reject');
+        Route::get('/refund-requests', [RefundRequestAdminController::class, 'index'])
+            ->middleware('spatie_permission:payments.view')
+            ->name('refund-requests.index');
+        Route::match(['put', 'patch'], '/refund-requests/{refundRequest}', [RefundRequestAdminController::class, 'update'])
+            ->middleware('spatie_permission:payments.confirm')
+            ->name('refund-requests.update');
 
         /* ── Plans (CRUD) ──────────────────────────────────────────── */
         Route::middleware('spatie_permission:plans.view')->group(function () {
@@ -150,7 +163,9 @@ Route::middleware(['auth'])->group(function () {
     Route::middleware(['company'])->group(function () {
         Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
         Route::get('/billing/checkout', [BillingController::class, 'checkout'])->name('billing.checkout');
-        Route::post('/billing/chargily', [BillingController::class, 'startChargily'])->name('billing.chargily.start');
+        Route::post('/billing/chargily', [BillingController::class, 'startChargily'])
+            ->middleware('throttle:billing-checkout')
+            ->name('billing.chargily.start');
         Route::get('/billing/chargily/redirect/{payment}', [BillingController::class, 'redirectToChargily'])
             ->name('billing.chargily.redirect');
         Route::get('/billing/success/{payment}', [BillingController::class, 'success'])->name('billing.success');
@@ -159,6 +174,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/billing/bon/{payment}', [BillingController::class, 'showBonDeCommande'])->name('billing.bon.show');
         Route::get('/billing/bon/{payment}/download', [BillingController::class, 'downloadBonDeCommande'])->name('billing.bon.download');
         Route::post('/billing/bon/{payment}/proof', [BillingController::class, 'uploadBonProof'])->name('billing.bon.proof');
+        Route::post('/billing/refund-requests', [RefundRequestController::class, 'store'])->name('billing.refund-requests.store');
     });
 
     // Profile (no company required)
@@ -184,6 +200,7 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
 
     /* ── Unified Tiers (backwards-compatible) ───────────────────────── */
     Route::get('/contacts', [ContactController::class, 'index'])->name('contacts.index');
+    Route::redirect('/settings/contacts', '/clients');
     Route::get('/contacts/{contact}', [ContactController::class, 'show'])->name('contacts.show');
 
     Route::post('/contacts', [ContactController::class, 'store'])
@@ -301,6 +318,12 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     Route::post('/ledger/entry/post', [LedgerController::class, 'post'])
         ->middleware('role:owner,accountant')
         ->name('ledger.post');
+    Route::post('/ledger/entries/{entry}/lock', [LedgerController::class, 'lockEntry'])
+        ->middleware('role:owner,accountant')
+        ->name('ledger.entries.lock');
+    Route::post('/ledger/entries/{entry}/unlock', [LedgerController::class, 'unlockEntry'])
+        ->middleware('role:owner')
+        ->name('ledger.entries.unlock');
 
     Route::get('/ledger/entries/create', [JournalEntryController::class, 'create'])
         ->middleware('role:owner,accountant')
@@ -383,6 +406,22 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->name('reports.aged-receivables');
     Route::get('/reports/aged-payables', [ReportController::class, 'agedPayables'])
         ->name('reports.aged-payables');
+    Route::get('/reports/analytic-trial-balance', [ReportController::class, 'analyticTrialBalance'])
+        ->name('reports.analytic-trial-balance');
+    Route::get('/reports/analytic-trial-balance/export', [ReportController::class, 'queueAnalyticTrialBalanceExport'])
+        ->middleware('throttle:reports-queue')
+        ->name('reports.analytic-trial-balance.export');
+    Route::get('/reports/predictions', [ManagementPredictionController::class, 'index'])
+        ->name('reports.predictions');
+    Route::post('/reports/predictions/toggle', [ManagementPredictionController::class, 'toggle'])
+        ->middleware('role:owner,accountant')
+        ->name('reports.predictions.toggle');
+    Route::post('/reports/predictions', [ManagementPredictionController::class, 'store'])
+        ->middleware('role:owner,accountant')
+        ->name('reports.predictions.store');
+    Route::delete('/reports/predictions/{prediction}', [ManagementPredictionController::class, 'destroy'])
+        ->middleware('role:owner')
+        ->name('reports.predictions.destroy');
 
     /* ── Settings ───────────────────────────────────────────────────── */
     Route::get('/settings/company', [SettingsController::class, 'company'])->name('settings.company');
@@ -396,6 +435,56 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->name('settings.performance');
 
     Route::get('/settings/accounts', [SettingsController::class, 'accounts'])->name('settings.accounts');
+    Route::match(['put', 'patch'], '/settings/accounts/{account}/analytic-default', [SettingsController::class, 'updateAccountAnalyticDefault'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.accounts.analytic-default.update');
+    Route::get('/settings/analytics', [SettingsController::class, 'analytics'])->name('settings.analytics');
+    Route::get('/settings/currencies', [SettingsController::class, 'currencies'])
+        ->name('settings.currencies');
+    Route::post('/settings/currencies', [SettingsController::class, 'storeCurrency'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.currencies.store');
+    Route::match(['put', 'patch'], '/settings/currencies/{currency}', [SettingsController::class, 'updateCurrency'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.currencies.update');
+    Route::delete('/settings/currencies/{currency}', [SettingsController::class, 'destroyCurrency'])
+        ->middleware('role:owner')
+        ->name('settings.currencies.destroy');
+    Route::post('/settings/exchange-rates', [SettingsController::class, 'storeExchangeRate'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.exchange-rates.store');
+    Route::delete('/settings/exchange-rates/{exchangeRate}', [SettingsController::class, 'destroyExchangeRate'])
+        ->middleware('role:owner')
+        ->name('settings.exchange-rates.destroy');
+    Route::get('/settings/auto-counterpart-rules', [AutoCounterpartRuleController::class, 'index'])
+        ->name('settings.auto-counterpart-rules');
+    Route::post('/settings/auto-counterpart-rules', [AutoCounterpartRuleController::class, 'store'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.auto-counterpart-rules.store');
+    Route::match(['put', 'patch'], '/settings/auto-counterpart-rules/{rule}', [AutoCounterpartRuleController::class, 'update'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.auto-counterpart-rules.update');
+    Route::delete('/settings/auto-counterpart-rules/{rule}', [AutoCounterpartRuleController::class, 'destroy'])
+        ->middleware('role:owner')
+        ->name('settings.auto-counterpart-rules.destroy');
+    Route::post('/settings/analytics/axes', [SettingsController::class, 'storeAnalyticAxis'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.analytics.axes.store');
+    Route::match(['put', 'patch'], '/settings/analytics/axes/{axis}', [SettingsController::class, 'updateAnalyticAxis'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.analytics.axes.update');
+    Route::delete('/settings/analytics/axes/{axis}', [SettingsController::class, 'destroyAnalyticAxis'])
+        ->middleware('role:owner')
+        ->name('settings.analytics.axes.destroy');
+    Route::post('/settings/analytics/sections', [SettingsController::class, 'storeAnalyticSection'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.analytics.sections.store');
+    Route::match(['put', 'patch'], '/settings/analytics/sections/{section}', [SettingsController::class, 'updateAnalyticSection'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.analytics.sections.update');
+    Route::delete('/settings/analytics/sections/{section}', [SettingsController::class, 'destroyAnalyticSection'])
+        ->middleware('role:owner')
+        ->name('settings.analytics.sections.destroy');
 
     /* Journals */
     Route::get('/settings/journals', [SettingsController::class, 'journals'])
@@ -406,6 +495,9 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     Route::match(['put', 'patch'], '/settings/journals/{journal}', [SettingsController::class, 'updateJournal'])
         ->middleware('role:owner,accountant')
         ->name('settings.journals.update');
+    Route::post('/settings/journals/{journal}/permissions', [SettingsController::class, 'setJournalPermissions'])
+        ->middleware('role:owner')
+        ->name('settings.journals.permissions');
     Route::delete('/settings/journals/{journal}', [SettingsController::class, 'destroyJournal'])
         ->middleware('role:owner')
         ->name('settings.journals.destroy');
@@ -413,6 +505,18 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     /* Fiscal periods */
     Route::get('/settings/periods', [SettingsController::class, 'periods'])
         ->name('settings.periods');
+    Route::get('/settings/entry-locks', [SettingsController::class, 'entryLocks'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.entry-locks');
+    Route::post('/settings/entry-locks/password', [SettingsController::class, 'setEntryLockPassword'])
+        ->middleware('role:owner')
+        ->name('settings.entry-locks.password');
+    Route::post('/settings/entry-locks/date', [SettingsController::class, 'setDateEntryLock'])
+        ->middleware('role:owner,accountant')
+        ->name('settings.entry-locks.date');
+    Route::post('/settings/entry-locks/date/clear', [SettingsController::class, 'clearDateEntryLock'])
+        ->middleware('role:owner')
+        ->name('settings.entry-locks.date.clear');
     Route::post('/settings/periods', [SettingsController::class, 'createPeriod'])
         ->middleware('role:owner,accountant')
         ->name('settings.periods.create');

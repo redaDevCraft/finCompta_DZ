@@ -29,8 +29,11 @@ class EnsureSubscriptionActive
         }
 
         $graceDays = (int) config('services.saas.grace_days', 3);
+        $isInGrace = $subscription->grace_ends_at
+            ? $subscription->grace_ends_at->isFuture()
+            : $subscription->isInGrace($graceDays);
 
-        if ($subscription->isActive() || $subscription->isInGrace($graceDays)) {
+        if ($subscription->isActive() || $isInGrace) {
             return $next($request);
         }
 

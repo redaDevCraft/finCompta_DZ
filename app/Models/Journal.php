@@ -23,6 +23,7 @@ class Journal extends Model
         'label_ar',
         'type',
         'counterpart_account_id',
+        'allow_auto_counterpart',
         'is_system',
         'is_active',
         'position',
@@ -31,6 +32,7 @@ class Journal extends Model
     protected $casts = [
         'is_system' => 'boolean',
         'is_active' => 'boolean',
+        'allow_auto_counterpart' => 'boolean',
         'position' => 'integer',
     ];
 
@@ -65,6 +67,11 @@ class Journal extends Model
     public function entries(): HasMany
     {
         return $this->hasMany(JournalEntry::class, 'journal_id');
+    }
+
+    public function userPermissions(): HasMany
+    {
+        return $this->hasMany(JournalUserPermission::class, 'journal_id');
     }
 
     public function scopeActive(Builder $query): Builder

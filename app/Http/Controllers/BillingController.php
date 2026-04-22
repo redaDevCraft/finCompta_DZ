@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\Payment;
 use App\Models\PaymentWebhookLog;
 use App\Models\Plan;
+use App\Models\RefundRequest;
 use App\Services\ChargilyService;
 use App\Services\SubscriptionService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as LaravelResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -35,6 +37,12 @@ class BillingController extends Controller
             ->orderByDesc('created_at')
             ->limit(25)
             ->get();
+        $refundRequests = RefundRequest::query()
+            ->where('company_id', $company->id)
+            ->with('payment:id,reference')
+            ->orderByDesc('created_at')
+            ->limit(25)
+            ->get();
 
         return Inertia::render('Billing/Index', [
             'subscription' => $subscription ? [
@@ -43,6 +51,7 @@ class BillingController extends Controller
                 'billing_cycle' => $subscription->billing_cycle,
                 'trial_ends_at' => optional($subscription->trial_ends_at)?->toIso8601String(),
                 'current_period_ends_at' => optional($subscription->current_period_ends_at)?->toIso8601String(),
+                'grace_ends_at' => optional($subscription->grace_ends_at)?->toIso8601String(),
                 'days_remaining' => $subscription->daysRemaining(),
                 'is_on_trial' => $subscription->isOnTrial(),
                 'is_active' => $subscription->isActive(),
@@ -55,6 +64,7 @@ class BillingController extends Controller
             ] : null,
             'plans' => $plans,
             'payments' => $payments,
+            'refund_requests' => $refundRequests,
             'chargily_ready' => app(ChargilyService::class)->isConfigured(),
         ]);
     }
@@ -115,6 +125,7 @@ class BillingController extends Controller
             'amount_dzd' => $plan->priceForCycle($validated['cycle']),
             'currency' => 'DZD',
             'status' => 'pending',
+            'approval_status' => 'none',
         ]);
 
         $result = $chargily->createCheckout(
@@ -200,6 +211,7 @@ class BillingController extends Controller
         $checkoutId = $entity['id'] ?? null;
         $metadata = $entity['metadata'] ?? [];
         $paymentId = $metadata['payment_id'] ?? null;
+        $eventId = is_string($entity['id'] ?? null) ? (string) $entity['id'] : null;
 
         $payment = null;
         if ($paymentId) {
@@ -209,13 +221,21 @@ class BillingController extends Controller
         }
 
         $signatureValid = $chargily->verifyWebhookSignature($raw, $signature);
+        $isDuplicate = $eventId
+            ? PaymentWebhookLog::query()
+                ->where('gateway', 'chargily')
+                ->where('event_id', $eventId)
+                ->exists()
+            : false;
 
         PaymentWebhookLog::query()->create([
             'gateway' => 'chargily',
+            'event_id' => $eventId,
             'event_name' => is_string($event) ? $event : null,
             'signature_header' => is_string($signature) ? $signature : null,
             'payment_id' => $payment?->id,
             'signature_valid' => $signatureValid,
+            'is_duplicate' => $isDuplicate,
             'payload' => $data,
             'received_at' => now(),
         ]);
@@ -226,6 +246,33 @@ class BillingController extends Controller
 
         if (! $payment) {
             return response('payment not found', 404);
+        }
+
+        if ($isDuplicate) {
+            return response('duplicate ignored', 200);
+        }
+
+        if (! $this->isWebhookModeSafe($entity)) {
+            Log::warning('Chargily webhook rejected because mode mismatch.', [
+                'event' => $event,
+                'configured_mode' => config('services.chargily.mode'),
+                'entity_id' => $eventId,
+            ]);
+
+            return response('mode mismatch', 422);
+        }
+
+        if (! $this->isWebhookAmountValid($payment, $entity)) {
+            Log::warning('Chargily webhook rejected because amount or currency mismatch.', [
+                'payment_id' => $payment->id,
+                'payment_reference' => $payment->reference,
+                'expected_amount' => $payment->amount_dzd,
+                'expected_currency' => strtoupper((string) $payment->currency),
+                'received_amount' => $entity['amount'] ?? null,
+                'received_currency' => strtoupper((string) ($entity['currency'] ?? '')),
+            ]);
+
+            return response('amount mismatch', 422);
         }
 
         $payment->update([
@@ -270,6 +317,7 @@ class BillingController extends Controller
             'amount_dzd' => $plan->priceForCycle($validated['cycle']),
             'currency' => 'DZD',
             'status' => 'pending',
+            'approval_status' => 'proof_missing',
         ]);
 
         $pdf = Pdf::loadView('pdf.bon_de_commande', [
@@ -324,15 +372,27 @@ class BillingController extends Controller
         ]);
 
         $file = $request->file('proof');
+        $detectedMime = (string) $file->getMimeType();
+        $allowedMimes = ['application/pdf', 'image/jpeg', 'image/png'];
+        if (! in_array($detectedMime, $allowedMimes, true)) {
+            return back()->withErrors(['proof' => 'Type de fichier non supporte.']);
+        }
         $path = $file->storeAs(
             'bon-de-commande/'.$payment->company_id.'/proofs',
             $payment->reference.'-'.Str::random(6).'.'.$file->getClientOriginalExtension(),
             'local'
         );
 
+        $hash = hash_file('sha256', $file->getRealPath());
+
         $payment->update([
             'proof_upload_path' => $path,
             'status' => 'processing',
+            'approval_status' => 'proof_uploaded',
+            'proof_uploaded_by' => $request->user()?->id,
+            'proof_mime' => $detectedMime,
+            'proof_size_bytes' => $file->getSize(),
+            'proof_sha256' => $hash ?: null,
             'meta' => array_merge($payment->meta ?? [], [
                 'proof_uploaded_at' => now()->toIso8601String(),
             ]),
@@ -385,5 +445,51 @@ class BillingController extends Controller
         }
 
         return $base;
+    }
+
+    /**
+     * Chargily entities typically expose either live_mode/livemode/mode.
+     * We reject test payloads when app is configured as live.
+     *
+     * @param  array<string, mixed>  $entity
+     */
+    private function isWebhookModeSafe(array $entity): bool
+    {
+        $configuredMode = strtolower((string) config('services.chargily.mode', 'test'));
+        $liveFlags = [
+            $entity['livemode'] ?? null,
+            $entity['live_mode'] ?? null,
+            isset($entity['mode']) ? strtolower((string) $entity['mode']) === 'live' : null,
+        ];
+
+        if ($configuredMode !== 'live') {
+            return true;
+        }
+
+        foreach ($liveFlags as $flag) {
+            if ($flag === false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $entity
+     */
+    private function isWebhookAmountValid(Payment $payment, array $entity): bool
+    {
+        $amount = $entity['amount'] ?? null;
+        $currency = strtoupper((string) ($entity['currency'] ?? ''));
+
+        if (! is_numeric($amount)) {
+            return false;
+        }
+
+        $expectedCurrency = strtoupper((string) $payment->currency);
+
+        return (int) $amount === (int) $payment->amount_dzd
+            && $currency === $expectedCurrency;
     }
 }

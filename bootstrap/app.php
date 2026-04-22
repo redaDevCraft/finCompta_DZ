@@ -9,12 +9,11 @@ use App\Http\Middleware\PerformanceRequestLogger;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
-use Inertia\Inertia;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -103,5 +102,25 @@ return Application::configure(basePath: dirname(__DIR__))
     // })->create();
 
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (HttpExceptionInterface $e, Request $request) {
+            $status = $e->getStatusCode();
+            $message = trim((string) $e->getMessage());
+            $hasBusinessMessage = $message !== '';
+
+            // Business errors raised via abort(422, '...') should surface as
+            // user-friendly notifications in Inertia/web flows.
+            if ($hasBusinessMessage && in_array($status, [409, 422], true)) {
+                if ($request->expectsJson() || $request->ajax()) {
+                    return response()->json([
+                        'message' => $message,
+                    ], $status);
+                }
+
+                if ($request->hasSession()) {
+                    return back()->with('error', $message);
+                }
+            }
+
+            return null;
+        });
     })->create();

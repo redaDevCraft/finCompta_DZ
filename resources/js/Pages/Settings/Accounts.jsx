@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, Search } from 'lucide-react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -13,7 +13,7 @@ const CLASS_LABELS = {
     7: 'Classe 7 — Produits',
 };
 
-export default function Accounts({ accountsByClass }) {
+export default function Accounts({ accountsByClass, analyticSections = [] }) {
     const [query, setQuery] = useState('');
     const [openClasses, setOpenClasses] = useState({
         1: true,
@@ -140,6 +140,23 @@ export default function Accounts({ accountsByClass }) {
                                                     </div>
 
                                                     <div className="flex items-center gap-3">
+                                                        <select
+                                                            value={account.default_analytic_section_id ?? ''}
+                                                            onChange={(e) => {
+                                                                router.put(`/settings/accounts/${account.id}/analytic-default`, {
+                                                                    default_analytic_section_id: e.target.value || null,
+                                                                }, { preserveScroll: true });
+                                                            }}
+                                                            className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-700"
+                                                        >
+                                                            <option value="">Aucun analytique</option>
+                                                            {analyticSections.map((section) => (
+                                                                <option key={section.id} value={section.id}>
+                                                                    {section.code} - {section.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+
                                                         <label className="flex items-center gap-2 text-sm text-slate-600">
                                                             <span>Actif</span>
                                                             <input

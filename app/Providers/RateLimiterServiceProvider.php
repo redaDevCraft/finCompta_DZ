@@ -93,6 +93,17 @@ class RateLimiterServiceProvider extends ServiceProvider
         RateLimiter::for('reports-download', fn (Request $request) => [
             Limit::perMinute(60)->by($this->userKey($request, 'reports-download')),
         ]);
+
+        /*
+         * billing-checkout — /billing/chargily
+         *
+         * Checkout creation is cheap to click but expensive downstream
+         * (gateway sessions + webhook noise). 5/min per user+tenant is
+         * enough for retries while blocking scripted floods.
+         */
+        RateLimiter::for('billing-checkout', fn (Request $request) => [
+            Limit::perMinute(5)->by($this->userKey($request, 'billing-checkout')),
+        ]);
     }
 
     /**

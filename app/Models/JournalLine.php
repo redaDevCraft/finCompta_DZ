@@ -21,6 +21,11 @@ class JournalLine extends Model
         'debit',
         'credit',
         'contact_id',
+        'analytic_section_id',
+        'currency_id',
+        'exchange_rate',
+        'amount_foreign_debit',
+        'amount_foreign_credit',
         'lettering_id',
         'description',
         'sort_order',
@@ -29,6 +34,9 @@ class JournalLine extends Model
     protected $casts = [
         'debit' => 'decimal:2',
         'credit' => 'decimal:2',
+        'exchange_rate' => 'decimal:8',
+        'amount_foreign_debit' => 'decimal:4',
+        'amount_foreign_credit' => 'decimal:4',
     ];
 
     protected static function booted(): void
@@ -64,6 +72,16 @@ class JournalLine extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'contact_id');
+    }
+
+    public function analyticSection(): BelongsTo
+    {
+        return $this->belongsTo(AnalyticSection::class, 'analytic_section_id');
+    }
+
+    public function currency(): BelongsTo
+    {
+        return $this->belongsTo(Currency::class, 'currency_id');
     }
 
     public function lettering(): BelongsTo

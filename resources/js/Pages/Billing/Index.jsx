@@ -1,4 +1,4 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { CreditCard, FileText, Sparkles } from 'lucide-react';
 
@@ -23,7 +23,20 @@ const PAY_BADGE = {
     expired:    { label: 'Expiré',       cls: 'bg-slate-200 text-slate-700' },
 };
 
-export default function BillingIndex({ subscription, plans = [], payments = [], chargily_ready }) {
+export default function BillingIndex({ subscription, plans = [], payments = [], refund_requests = [], chargily_ready }) {
+    const refundForm = useForm({
+        payment_id: '',
+        reason: '',
+    });
+
+    function submitRefund(paymentId) {
+        refundForm.setData((prev) => ({ ...prev, payment_id: paymentId }));
+        refundForm.post(route('billing.refund-requests.store'), {
+            preserveScroll: true,
+            onSuccess: () => refundForm.setData({ payment_id: '', reason: '' }),
+        });
+    }
+
     return (
         <AuthenticatedLayout header="Facturation">
             <Head title="Facturation" />
@@ -62,6 +75,11 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
                             }
                         />
                         <InfoCard
+                            icon={Sparkles}
+                            label="Date limite de grace"
+                            value={subscription?.grace_ends_at ? new Date(subscription.grace_ends_at).toLocaleString('fr-FR') : '—'}
+                        />
+                        <InfoCard
                             icon={CreditCard}
                             label="Jours restants"
                             value={subscription?.days_remaining ?? 0}
@@ -71,6 +89,46 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
                             label="Dernier mode de paiement"
                             value={subscription?.last_payment_method ?? '—'}
                         />
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h2 className="text-lg font-semibold">Demandes de remboursement</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Pour tout paiement litigieux, soumettez une demande avec justification detaillee.
+                    </p>
+                    <div className="mt-4 space-y-3">
+                        <label className="text-sm font-medium text-slate-700">Motif</label>
+                        <textarea
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            rows={3}
+                            value={refundForm.data.reason}
+                            onChange={(e) => refundForm.setData('reason', e.target.value)}
+                            placeholder="Expliquez le motif de remboursement..."
+                        />
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                        {payments.filter((p) => p.status === 'paid').slice(0, 6).map((p) => (
+                            <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => submitRefund(p.id)}
+                                disabled={refundForm.processing || !refundForm.data.reason}
+                                className="rounded-lg border border-slate-300 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
+                            >
+                                Demander remboursement: {p.reference}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="mt-4">
+                        <h3 className="text-sm font-semibold text-slate-700">Historique des demandes</h3>
+                        <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                            {refund_requests.length ? refund_requests.map((rr) => (
+                                <li key={rr.id}>
+                                    {rr.payment?.reference ?? 'Paiement'} - {rr.status} - {new Date(rr.created_at).toLocaleString('fr-FR')}
+                                </li>
+                            )) : <li>Aucune demande pour le moment.</li>}
+                        </ul>
                     </div>
                 </div>
 

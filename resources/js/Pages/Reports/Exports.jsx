@@ -21,6 +21,7 @@ const POLL_INTERVAL_MS = 3000;
 const TYPE_LABELS = {
     bilan_pdf: 'Bilan (PDF)',
     vat_xlsx: 'TVA (Excel)',
+    analytic_trial_balance_xlsx: 'Balance analytique (Excel)',
 };
 
 function formatRunParams(run) {
@@ -36,6 +37,11 @@ function formatRunParams(run) {
             return `${y} — T${run.params.quarter}`;
         }
         return String(y);
+    }
+    if (run.type === 'analytic_trial_balance_xlsx') {
+        const from = run.params?.date_from || '—';
+        const to = run.params?.date_to || '—';
+        return `du ${from} au ${to}`;
     }
     return '—';
 }

@@ -32,7 +32,38 @@ class PaymentConfirmationController extends Controller
             return back()->withErrors(['payment' => 'Ce paiement ne peut plus être confirmé.']);
         }
 
+        if ($payment->gateway === 'bon_de_commande' && empty($payment->proof_upload_path)) {
+            return back()->withErrors(['payment' => 'Un justificatif est obligatoire avant confirmation du bon de commande.']);
+        }
+
+        $threshold = (int) config('services.saas.manual_double_approval_threshold', 300000);
+        $needsSecondApproval = $payment->gateway === 'bon_de_commande' && $payment->amount_dzd >= $threshold;
+
+        if ($needsSecondApproval && $payment->approval_status !== 'awaiting_second_approval') {
+            $payment->update([
+                'approval_status' => 'awaiting_second_approval',
+                'meta' => array_merge($payment->meta ?? [], [
+                    'first_approval_by' => request()->user()?->id,
+                    'first_approval_at' => now()->toIso8601String(),
+                ]),
+            ]);
+
+            return redirect()
+                ->route('admin.payments.index')
+                ->with('success', '1/2 validation enregistrée. Une deuxième validation admin est requise.');
+        }
+
+        $firstApproverId = data_get($payment->meta, 'first_approval_by');
+        if ($needsSecondApproval && $firstApproverId && (string) $firstApproverId === (string) request()->user()?->id) {
+            return back()->withErrors(['payment' => 'La seconde validation doit être faite par un autre admin.']);
+        }
+
         $subscriptions->markPaymentSucceeded($payment);
+        $payment->update([
+            'approval_status' => 'approved',
+            'admin_confirmed_by' => request()->user()?->id,
+            'admin_confirmed_at' => now(),
+        ]);
 
         return redirect()
             ->route('admin.payments.index')
@@ -50,6 +81,11 @@ class PaymentConfirmationController extends Controller
         }
 
         $subscriptions->markPaymentFailed($payment, $validated['reason'] ?? 'rejet_admin');
+        $payment->update([
+            'approval_status' => 'rejected',
+            'admin_rejected_by' => $request->user()?->id,
+            'admin_rejected_at' => now(),
+        ]);
 
         return redirect()
             ->route('admin.payments.index')

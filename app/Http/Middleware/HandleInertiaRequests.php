@@ -68,6 +68,8 @@ class HandleInertiaRequests extends Middleware
                     'is_active' => $sub->isActive(),
                     'days_remaining' => $sub->daysRemaining(),
                     'trial_ends_at' => optional($sub->trial_ends_at)?->toIso8601String(),
+                    'current_period_ends_at' => optional($sub->current_period_ends_at)?->toIso8601String(),
+                    'grace_ends_at' => optional($sub->grace_ends_at)?->toIso8601String(),
                     'plan' => $sub->plan ? [
                         'code' => $sub->plan->code,
                         'name' => $sub->plan->name,

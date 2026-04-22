@@ -26,6 +26,7 @@ class Account extends Model
         'parent_code',
         'is_active',
         'is_lettrable',
+        'default_analytic_section_id',
     ];
 
     protected $casts = [
@@ -38,6 +39,11 @@ class Account extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function defaultAnalyticSection(): BelongsTo
+    {
+        return $this->belongsTo(AnalyticSection::class, 'default_analytic_section_id');
     }
 
     public function journalLines(): HasMany

@@ -34,6 +34,7 @@ class ReportRun extends Model
     public const TYPE_BILAN_PDF = 'bilan_pdf';
 
     public const TYPE_VAT_XLSX = 'vat_xlsx';
+    public const TYPE_ANALYTIC_TRIAL_BALANCE_XLSX = 'analytic_trial_balance_xlsx';
 
     protected $primaryKey = 'id';
 

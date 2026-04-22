@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Account;
 use App\Models\ReportRun;
 use App\Services\AgedBalanceService;
+use App\Services\AnalyticReportService;
 use App\Services\BilanService;
 use App\Services\Reports\ReportRunService;
 use App\Services\VatReportService;
@@ -97,6 +98,57 @@ class ReportController extends Controller
     public function agedPayables(Request $request, AgedBalanceService $service): Response
     {
         return $this->agedBalance($request, $service, 'payable');
+    }
+
+    public function analyticTrialBalance(Request $request, AnalyticReportService $analyticReportService): Response
+    {
+        $companyId = app('currentCompany')->id;
+        $dateFrom = $request->input('date_from');
+        $dateTo = $request->input('date_to');
+        $axisId = $request->input('axis_id');
+        $sectionId = $request->input('section_id');
+
+        $data = $analyticReportService->buildTrialBalance(
+            companyId: $companyId,
+            dateFrom: $dateFrom,
+            dateTo: $dateTo,
+            axisId: $axisId,
+            sectionId: $sectionId,
+        );
+
+        return Inertia::render('Reports/AnalyticTrialBalance', [
+            'rows' => $data['rows'],
+            'axes' => $data['axes'],
+            'sections' => $data['sections'],
+            'filters' => [
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'axis_id' => $axisId,
+                'section_id' => $sectionId,
+            ],
+            'totals' => $data['totals'],
+        ]);
+    }
+
+    public function queueAnalyticTrialBalanceExport(Request $request, ReportRunService $runs): RedirectResponse
+    {
+        $company = app('currentCompany');
+
+        $runs->queue(
+            companyId: $company->id,
+            user: $request->user(),
+            type: ReportRun::TYPE_ANALYTIC_TRIAL_BALANCE_XLSX,
+            params: [
+                'date_from' => $request->input('date_from'),
+                'date_to' => $request->input('date_to'),
+                'axis_id' => $request->input('axis_id'),
+                'section_id' => $request->input('section_id'),
+            ],
+        );
+
+        return redirect()
+            ->route('reports.runs.index')
+            ->with('success', 'Génération de l’export Balance analytique en cours — il apparaîtra dans « Mes exports ».');
     }
 
     protected function agedBalance(

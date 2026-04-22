@@ -22,6 +22,11 @@ function emptyLine() {
     return {
         account_id: '',
         contact_id: '',
+        analytic_section_id: '',
+        currency_id: '',
+        exchange_rate: '',
+        amount_foreign_debit: '',
+        amount_foreign_credit: '',
         description: '',
         debit: '',
         credit: '',
@@ -36,6 +41,9 @@ export default function CreateJournalEntry({
     journals = [],
     prefillAccounts = [],
     prefillContacts = [],
+    analyticSections = [],
+    autoCounterpartRules = [],
+    currencies = [],
     isEdit = false,
 }) {
     const { data, setData, processing, errors, reset } = useForm({
@@ -94,6 +102,49 @@ export default function CreateJournalEntry({
         setData('lines', next);
     };
 
+    const setAccountLine = (index, accountId, accountOption) => {
+        const next = data.lines.map((l, i) => (i === index ? { ...l } : l));
+        next[index].account_id = accountId || '';
+        if (!next[index].analytic_section_id && accountOption?.default_analytic_section_id) {
+            next[index].analytic_section_id = accountOption.default_analytic_section_id;
+        }
+        setData('lines', next);
+    };
+
+    const applyAutoCounterpart = (index) => {
+        const journal = journals.find((j) => j.id === data.journal_id);
+        if (!journal?.allow_auto_counterpart) return;
+
+        const source = data.lines[index];
+        if (!source?.account_id) return;
+        const debit = parseFloat(source.debit) || 0;
+        const credit = parseFloat(source.credit) || 0;
+        const direction = debit > 0 ? 'debit' : credit > 0 ? 'credit' : null;
+        const amount = debit > 0 ? debit : credit;
+        if (!direction || amount <= 0) return;
+
+        const rule = autoCounterpartRules.find(
+            (r) => r.trigger_account_id === source.account_id && r.trigger_direction === direction
+        );
+        if (!rule) return;
+
+        const exists = data.lines.some(
+            (l) => l.description?.startsWith('Contrepartie auto:') && l.account_id === rule.counterpart_account_id
+        );
+        if (exists) return;
+
+        const generated = {
+            account_id: rule.counterpart_account_id,
+            contact_id: '',
+            analytic_section_id: '',
+            description: `Contrepartie auto: ${rule.name}`,
+            debit: rule.counterpart_direction === 'debit' ? String(amount) : '',
+            credit: rule.counterpart_direction === 'credit' ? String(amount) : '',
+        };
+
+        setData('lines', [...data.lines, generated]);
+    };
+
     const addLine = () => setData('lines', [...data.lines, emptyLine()]);
 
     const removeLine = (index) => {
@@ -113,6 +164,11 @@ export default function CreateJournalEntry({
             lines: data.lines.map((l) => ({
                 account_id: l.account_id || null,
                 contact_id: l.contact_id || null,
+                analytic_section_id: l.analytic_section_id || null,
+                currency_id: l.currency_id || null,
+                exchange_rate: parseFloat(l.exchange_rate) || null,
+                amount_foreign_debit: parseFloat(l.amount_foreign_debit) || null,
+                amount_foreign_credit: parseFloat(l.amount_foreign_credit) || null,
                 description: l.description || null,
                 debit: parseFloat(l.debit) || 0,
                 credit: parseFloat(l.credit) || 0,
@@ -249,6 +305,21 @@ export default function CreateJournalEntry({
                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[18%]">
                                             Tiers
                                         </th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[20%]">
+                                            Analytique
+                                        </th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 w-[10%]">
+                                            Devise
+                                        </th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 w-[10%]">
+                                            Taux
+                                        </th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 w-[12%]">
+                                            Débit dev.
+                                        </th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 w-[12%]">
+                                            Crédit dev.
+                                        </th>
                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                                             Libellé
                                         </th>
@@ -266,6 +337,11 @@ export default function CreateJournalEntry({
                                         const lineErrorKeys = [
                                             `lines.${index}.account_id`,
                                             `lines.${index}.contact_id`,
+                                            `lines.${index}.analytic_section_id`,
+                                            `lines.${index}.currency_id`,
+                                            `lines.${index}.exchange_rate`,
+                                            `lines.${index}.amount_foreign_debit`,
+                                            `lines.${index}.amount_foreign_credit`,
                                             `lines.${index}.debit`,
                                             `lines.${index}.credit`,
                                             `lines.${index}.description`,
@@ -281,7 +357,7 @@ export default function CreateJournalEntry({
                                                         endpoint="/suggest/accounts"
                                                         value={line.account_id}
                                                         prefill={accountsById.get(line.account_id) ?? null}
-                                                        onChange={(id) => setLine(index, 'account_id', id || '')}
+                                                        onChange={(id, option) => setAccountLine(index, id, option)}
                                                         getLabel={accountLabel}
                                                         placeholder="Tapez un code…"
                                                         minChars={1}
@@ -298,6 +374,64 @@ export default function CreateJournalEntry({
                                                         getLabel={contactLabel}
                                                         placeholder="Optionnel"
                                                         ariaLabel={`Tiers de la ligne ${index + 1}`}
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2 align-top">
+                                                    <select
+                                                        value={line.analytic_section_id || ''}
+                                                        onChange={(e) => setLine(index, 'analytic_section_id', e.target.value)}
+                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                                                    >
+                                                        <option value="">Optionnel</option>
+                                                        {analyticSections.map((section) => (
+                                                            <option key={section.id} value={section.id}>
+                                                                {section.code} - {section.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="px-3 py-2 align-top">
+                                                    <select
+                                                        value={line.currency_id || ''}
+                                                        onChange={(e) => setLine(index, 'currency_id', e.target.value)}
+                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                                                    >
+                                                        <option value="">Base</option>
+                                                        {currencies.map((currency) => (
+                                                            <option key={currency.id} value={currency.id}>
+                                                                {currency.code}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td className="px-3 py-2 align-top text-right">
+                                                    <input
+                                                        type="number"
+                                                        step="0.00000001"
+                                                        min="0"
+                                                        value={line.exchange_rate || ''}
+                                                        onChange={(e) => setLine(index, 'exchange_rate', e.target.value)}
+                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2 align-top text-right">
+                                                    <input
+                                                        type="number"
+                                                        step="0.0001"
+                                                        min="0"
+                                                        value={line.amount_foreign_debit || ''}
+                                                        onChange={(e) => setLine(index, 'amount_foreign_debit', e.target.value)}
+                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2 align-top text-right">
+                                                    <input
+                                                        type="number"
+                                                        step="0.0001"
+                                                        min="0"
+                                                        value={line.amount_foreign_credit || ''}
+                                                        onChange={(e) => setLine(index, 'amount_foreign_credit', e.target.value)}
+                                                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
                                                     />
                                                 </td>
                                                 <td className="px-3 py-2 align-top">
@@ -321,6 +455,7 @@ export default function CreateJournalEntry({
                                                         onChange={(e) =>
                                                             setLine(index, 'debit', e.target.value)
                                                         }
+                                                        onBlur={() => applyAutoCounterpart(index)}
                                                         className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
                                                     />
                                                 </td>
@@ -333,6 +468,7 @@ export default function CreateJournalEntry({
                                                         onChange={(e) =>
                                                             setLine(index, 'credit', e.target.value)
                                                         }
+                                                        onBlur={() => applyAutoCounterpart(index)}
                                                         className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
                                                     />
                                                 </td>
@@ -355,7 +491,7 @@ export default function CreateJournalEntry({
                                     <tr>
                                         <td
                                             className="px-3 py-3 text-right text-sm font-semibold text-slate-700"
-                                            colSpan={3}
+                                            colSpan={9}
                                         >
                                             Totaux
                                         </td>
@@ -370,7 +506,7 @@ export default function CreateJournalEntry({
                                     <tr>
                                         <td
                                             className="px-3 py-3 text-right text-sm text-slate-600"
-                                            colSpan={3}
+                                            colSpan={9}
                                         >
                                             Écart (Débit − Crédit)
                                         </td>

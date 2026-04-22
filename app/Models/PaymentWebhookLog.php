@@ -19,16 +19,19 @@ class PaymentWebhookLog extends Model
 
     protected $fillable = [
         'gateway',
+        'event_id',
         'event_name',
         'signature_header',
         'payment_id',
         'signature_valid',
+        'is_duplicate',
         'payload',
         'received_at',
     ];
 
     protected $casts = [
         'signature_valid' => 'boolean',
+        'is_duplicate' => 'boolean',
         'payload' => 'array',
         'received_at' => 'datetime',
     ];

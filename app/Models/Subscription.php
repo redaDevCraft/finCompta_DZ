@@ -24,6 +24,7 @@ class Subscription extends Model
         'trial_ends_at',
         'current_period_started_at',
         'current_period_ends_at',
+        'grace_ends_at',
         'canceled_at',
         'cancel_at',
         'last_payment_method',
@@ -33,6 +34,7 @@ class Subscription extends Model
         'trial_ends_at' => 'datetime',
         'current_period_started_at' => 'datetime',
         'current_period_ends_at' => 'datetime',
+        'grace_ends_at' => 'datetime',
         'canceled_at' => 'datetime',
         'cancel_at' => 'datetime',
     ];
@@ -95,6 +97,10 @@ class Subscription extends Model
 
         if ($this->current_period_ends_at->isFuture()) {
             return false;
+        }
+
+        if ($this->grace_ends_at) {
+            return $this->grace_ends_at->isFuture();
         }
 
         return $this->current_period_ends_at

@@ -66,6 +66,7 @@ return [
     'saas' => [
         'trial_days' => (int) env('SAAS_TRIAL_DAYS', 3),
         'grace_days' => (int) env('SAAS_GRACE_DAYS', 3),
+        'manual_double_approval_threshold' => (int) env('SAAS_MANUAL_DOUBLE_APPROVAL_THRESHOLD', 300000),
         'admin_email' => env('SAAS_ADMIN_EMAIL'),
         'payee' => [
             'name' => env('SAAS_PAYEE_NAME', 'FinCompta DZ'),

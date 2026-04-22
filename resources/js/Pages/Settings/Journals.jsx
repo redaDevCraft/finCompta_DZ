@@ -29,6 +29,7 @@ function JournalForm({ journal, counterpartAccounts, types, onClose }) {
         label_ar: journal?.label_ar ?? '',
         type: journal?.type ?? 'misc',
         counterpart_account_id: journal?.counterpart_account_id ?? '',
+        allow_auto_counterpart: journal?.allow_auto_counterpart ?? true,
         is_active: journal?.is_active ?? true,
         position: journal?.position ?? 0,
     });
@@ -125,14 +126,24 @@ function JournalForm({ journal, counterpartAccounts, types, onClose }) {
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     />
                 </div>
-                <label className="flex items-end gap-2 text-sm text-slate-700">
-                    <input
-                        type="checkbox"
-                        checked={data.is_active}
-                        onChange={(e) => setData('is_active', e.target.checked)}
-                    />
-                    Actif
-                </label>
+                <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                            type="checkbox"
+                            checked={data.allow_auto_counterpart}
+                            onChange={(e) => setData('allow_auto_counterpart', e.target.checked)}
+                        />
+                        Autoriser contrepartie auto
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                            type="checkbox"
+                            checked={data.is_active}
+                            onChange={(e) => setData('is_active', e.target.checked)}
+                        />
+                        Actif
+                    </label>
+                </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -151,8 +162,10 @@ function JournalForm({ journal, counterpartAccounts, types, onClose }) {
     );
 }
 
-export default function Journals({ journals, counterpartAccounts, types }) {
+export default function Journals({ journals, users = [], counterpartAccounts, types }) {
     const [modal, setModal] = useState({ open: false, journal: null });
+    const [permissionModal, setPermissionModal] = useState({ open: false, journal: null });
+    const [permissionState, setPermissionState] = useState([]);
     const { confirm } = useNotification();
 
     const destroy = async (journal) => {
@@ -163,6 +176,34 @@ export default function Journals({ journals, counterpartAccounts, types }) {
         });
         if (!ok) return;
         router.delete(`/settings/journals/${journal.id}`, { preserveScroll: true });
+    };
+
+    const openPermissions = (journal) => {
+        const rows = users.map((u) => {
+            const existing = (journal.permissions || []).find((p) => p.user_id === u.id);
+            return {
+                user_id: u.id,
+                name: u.name,
+                email: u.email,
+                can_view: !!existing?.can_view,
+                can_post: !!existing?.can_post,
+            };
+        });
+        setPermissionState(rows);
+        setPermissionModal({ open: true, journal });
+    };
+
+    const savePermissions = () => {
+        router.post(`/settings/journals/${permissionModal.journal.id}/permissions`, {
+            permissions: permissionState.map((p) => ({
+                user_id: p.user_id,
+                can_view: p.can_view,
+                can_post: p.can_post,
+            })),
+        }, {
+            preserveScroll: true,
+            onSuccess: () => setPermissionModal({ open: false, journal: null }),
+        });
     };
 
     return (
@@ -237,6 +278,14 @@ export default function Journals({ journals, counterpartAccounts, types }) {
                                             >
                                                 <Pencil className="h-4 w-4" />
                                             </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => openPermissions(j)}
+                                                className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                                                title="Autorisations"
+                                            >
+                                                Autorisations
+                                            </button>
                                             {!j.is_system && (
                                                 <button
                                                     type="button"
@@ -269,6 +318,79 @@ export default function Journals({ journals, counterpartAccounts, types }) {
                         types={types}
                         onClose={() => setModal({ open: false, journal: null })}
                     />
+                )}
+            </Modal>
+
+            <Modal
+                open={permissionModal.open}
+                onClose={() => setPermissionModal({ open: false, journal: null })}
+                title={permissionModal.journal ? `Autorisations ${permissionModal.journal.code}` : 'Autorisations'}
+            >
+                {permissionModal.open && (
+                    <div className="space-y-4">
+                        <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+                            <table className="min-w-full divide-y divide-slate-200 text-sm">
+                                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                                    <tr>
+                                        <th className="px-3 py-2">Utilisateur</th>
+                                        <th className="px-3 py-2">Voir</th>
+                                        <th className="px-3 py-2">Comptabiliser</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {permissionState.map((row) => (
+                                        <tr key={row.user_id}>
+                                            <td className="px-3 py-2">
+                                                <div className="font-medium text-slate-800">{row.name}</div>
+                                                <div className="text-xs text-slate-500">{row.email}</div>
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={row.can_view}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        setPermissionState((prev) => prev.map((p) => p.user_id === row.user_id
+                                                            ? { ...p, can_view: checked, can_post: checked ? p.can_post : false }
+                                                            : p));
+                                                    }}
+                                                />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={row.can_post}
+                                                    disabled={!row.can_view}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        setPermissionState((prev) => prev.map((p) => p.user_id === row.user_id
+                                                            ? { ...p, can_post: checked, can_view: checked ? true : p.can_view }
+                                                            : p));
+                                                    }}
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setPermissionModal({ open: false, journal: null })}
+                                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                type="button"
+                                onClick={savePermissions}
+                                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
+                            >
+                                Enregistrer
+                            </button>
+                        </div>
+                    </div>
                 )}
             </Modal>
         </AuthenticatedLayout>

@@ -6,7 +6,10 @@ use App\Http\Resources\JournalEntryListResource;
 use App\Models\Account;
 use App\Models\Journal;
 use App\Models\JournalEntry;
+use App\Models\JournalEntryLock;
 use App\Models\JournalLine;
+use App\Services\EntryLockService;
+use App\Services\JournalPermissionService;
 use App\Services\JournalService;
 use App\Support\ListQuery\DateRange;
 use App\Support\ListQuery\PerPage;
@@ -19,9 +22,15 @@ use Inertia\Response;
 
 class LedgerController extends Controller
 {
+    public function __construct(
+        protected EntryLockService $entryLockService,
+        protected JournalPermissionService $journalPermissionService,
+    ) {}
+
     public function journal(Request $request): Response
     {
         $company = app('currentCompany');
+        $dateLock = $this->entryLockService->getDateLock($company->id);
 
         $sort = new SortSpec(
             allowed: ['entry_date', 'journal_code', 'status', 'created_at'],
@@ -44,6 +53,7 @@ class LedgerController extends Controller
                 'source_id',
                 'posted_at',
                 'created_at',
+                DB::raw("EXISTS (SELECT 1 FROM journal_entry_locks jel WHERE jel.journal_entry_id = journal_entries.id AND jel.lock_type = 'entry') as is_entry_locked"),
             ])
             // Totals are computed as aggregate sub-selects rather than loading
             // every line row into PHP. Same result, one scalar per row.
@@ -55,6 +65,22 @@ class LedgerController extends Controller
             })
             ->when($request->filled('journal_code'), function ($query) use ($request) {
                 $query->where('journal_code', $request->string('journal_code')->toString());
+            })
+            ->where(function ($query) use ($request) {
+                $userId = $request->user()?->id;
+                $query
+                    ->whereNotExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('journal_user_permissions as jup_all')
+                            ->whereColumn('jup_all.journal_id', 'journal_entries.journal_id');
+                    })
+                    ->orWhereExists(function ($sub) use ($userId) {
+                        $sub->selectRaw('1')
+                            ->from('journal_user_permissions as jup')
+                            ->whereColumn('jup.journal_id', 'journal_entries.journal_id')
+                            ->where('jup.user_id', $userId)
+                            ->where('jup.can_view', true);
+                    });
             });
 
         DateRange::apply(
@@ -69,11 +95,39 @@ class LedgerController extends Controller
         $entries = $query
             ->paginate(PerPage::resolve($request))
             ->withQueryString()
-            ->through(fn (JournalEntry $entry) => (new JournalEntryListResource($entry))->toArray($request));
+            ->through(function (JournalEntry $entry) use ($request, $dateLock) {
+                $row = (new JournalEntryListResource($entry))->toArray($request);
+                $entryDate = $row['entry_date'] ?? null;
+                $isDateLocked = $dateLock?->locked_until_date
+                    ? ($entryDate && $entryDate <= (string) $dateLock->locked_until_date)
+                    : false;
+
+                return array_merge($row, [
+                    'is_entry_locked' => (bool) ($entry->is_entry_locked ?? false),
+                    'is_date_locked' => (bool) $isDateLocked,
+                    'is_locked' => (bool) ($isDateLocked || ($entry->is_entry_locked ?? false)),
+                ]);
+            });
 
         $journalOptions = Journal::withoutGlobalScopes()
             ->where('company_id', $company->id)
             ->where('is_active', true)
+            ->where(function ($query) use ($request) {
+                $userId = $request->user()?->id;
+                $query
+                    ->whereNotExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('journal_user_permissions as jup_all')
+                            ->whereColumn('jup_all.journal_id', 'journals.id');
+                    })
+                    ->orWhereExists(function ($sub) use ($userId) {
+                        $sub->selectRaw('1')
+                            ->from('journal_user_permissions as jup')
+                            ->whereColumn('jup.journal_id', 'journals.id')
+                            ->where('jup.user_id', $userId)
+                            ->where('jup.can_view', true);
+                    });
+            })
             ->orderBy('position')
             ->orderBy('code')
             ->get(['code', 'label'])
@@ -85,6 +139,9 @@ class LedgerController extends Controller
 
         return Inertia::render('Ledger/Journal', [
             'entries' => $entries,
+            'lockMeta' => [
+                'locked_until_date' => $dateLock?->locked_until_date?->toDateString(),
+            ],
             'filters' => [
                 'status' => $request->input('status', ''),
                 'journal_code' => $request->input('journal_code', ''),
@@ -98,6 +155,34 @@ class LedgerController extends Controller
                 ['value' => 'reversed', 'label' => 'Extournée'],
             ],
         ]);
+    }
+
+    public function lockEntry(Request $request, JournalEntry $entry): RedirectResponse
+    {
+        abort_unless($entry->company_id === app('currentCompany')->id, 404);
+
+        JournalEntryLock::query()->firstOrCreate([
+            'company_id' => $entry->company_id,
+            'lock_type' => 'entry',
+            'journal_entry_id' => $entry->id,
+        ], [
+            'locked_by_user_id' => $request->user()?->id,
+        ]);
+
+        return back()->with('success', 'Écriture verrouillée.');
+    }
+
+    public function unlockEntry(JournalEntry $entry): RedirectResponse
+    {
+        abort_unless($entry->company_id === app('currentCompany')->id, 404);
+
+        JournalEntryLock::query()
+            ->where('company_id', $entry->company_id)
+            ->where('lock_type', 'entry')
+            ->where('journal_entry_id', $entry->id)
+            ->delete();
+
+        return back()->with('success', 'Écriture déverrouillée.');
     }
 
     public function accountLedger(Request $request): Response
@@ -295,6 +380,15 @@ class LedgerController extends Controller
             ->with('lines')
             ->where('company_id', $company->id)
             ->findOrFail($validated['journal_entry_id']);
+        $journal = Journal::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->where('id', $entry->journal_id)
+            ->firstOrFail();
+        abort_unless(
+            $this->journalPermissionService->canPost($request->user(), $journal),
+            403,
+            'Vous n’êtes pas autorisé à comptabiliser dans ce journal.'
+        );
 
         if ($entry->status !== 'draft') {
             return back()->with('error', 'Seules les écritures en brouillon peuvent être validées.');

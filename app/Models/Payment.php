@@ -25,18 +25,30 @@ class Payment extends Model
         'amount_dzd',
         'currency',
         'status',
+        'approval_status',
         'checkout_id',
         'checkout_url',
         'bon_pdf_path',
         'proof_upload_path',
+        'proof_uploaded_by',
+        'proof_mime',
+        'proof_size_bytes',
+        'proof_sha256',
         'meta',
         'paid_at',
+        'admin_confirmed_by',
+        'admin_confirmed_at',
+        'admin_rejected_by',
+        'admin_rejected_at',
     ];
 
     protected $casts = [
         'meta' => 'array',
         'paid_at' => 'datetime',
         'amount_dzd' => 'integer',
+        'proof_size_bytes' => 'integer',
+        'admin_confirmed_at' => 'datetime',
+        'admin_rejected_at' => 'datetime',
     ];
 
     protected static function boot(): void

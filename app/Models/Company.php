@@ -34,11 +34,14 @@ class Company extends Model
         'fiscal_year_end',
         'currency',
         'status',
+        'period_lock_password_hash',
+        'management_predictions_enabled',
     ];
 
     protected $casts = [
         'vat_registered' => 'boolean',
         'fiscal_year_end' => 'integer',
+        'management_predictions_enabled' => 'boolean',
     ];
 
     protected static function boot(): void

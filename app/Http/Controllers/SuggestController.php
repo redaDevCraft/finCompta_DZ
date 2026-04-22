@@ -85,7 +85,7 @@ class SuggestController extends Controller
         // Code is the leading index column, so an anchored ILIKE here is
         // effectively a range scan.
         $query = Account::query()
-            ->select(['id', 'code', 'label'])
+            ->select(['id', 'code', 'label', 'default_analytic_section_id'])
             ->where('is_active', true)
             ->where(function ($builder) use ($q) {
                 $builder
@@ -100,6 +100,7 @@ class SuggestController extends Controller
                 'id' => $a->id,
                 'code' => $a->code,
                 'label' => $a->label,
+                'default_analytic_section_id' => $a->default_analytic_section_id,
             ])->values(),
         ]);
     }

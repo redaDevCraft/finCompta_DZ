@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import {
     Activity,
@@ -9,6 +9,7 @@ import {
     Crown,
     ClipboardCheck,
     Clock,
+    ChevronDown,
     FileBarChart,
     FileText,
     Landmark,
@@ -65,18 +66,23 @@ const baseNavGroups = [
         label: 'États & rapports',
         items: [
             { href: '/reports/bilan', label: 'Bilan', icon: Scale },
+            { href: '/reports/predictions', label: 'Prévisions', icon: BarChart2 },
             { href: '/reports/aged-receivables', label: 'Balance âgée clients', icon: Clock },
             { href: '/reports/aged-payables', label: 'Balance âgée fournisseurs', icon: Clock },
+            { href: '/reports/analytic-trial-balance', label: 'Balance analytique', icon: BarChart2 },
             { href: '/reports/vat', label: 'Rapports TVA', icon: FileBarChart },
         ],
     },
     {
         label: 'Paramétrage',
         items: [
-            { href: '/contacts', label: 'Tiers', icon: Users },
+            { href: '/clients', label: 'Tiers', icon: Users },
             { href: '/settings/accounts', label: 'Plan comptable', icon: Landmark },
+            { href: '/settings/analytics', label: 'Comptabilité analytique', icon: Layers },
+            { href: '/settings/auto-counterpart-rules', label: 'Règles contrepartie auto', icon: ClipboardCheck },
             { href: '/settings/journals', label: 'Journaux', icon: BookOpen },
             { href: '/settings/periods', label: 'Périodes fiscales', icon: Clock },
+            { href: '/settings/entry-locks', label: 'Verrouillage écritures', icon: Shield },
             { href: '/settings/bank-accounts', label: 'Comptes bancaires', icon: Landmark },
             { href: '/settings/company', label: 'Société', icon: Settings },
             { href: '/settings/performance', label: 'Performance', icon: Activity },
@@ -104,16 +110,17 @@ function buildNavGroups(roles) {
     return groups;
 }
 
-function SidebarLink({ href, label, icon: Icon, active, onClick }) {
+function SidebarLink({ href, label, icon: Icon, active, onClick, linkRef }) {
     return (
         <Link
+            ref={linkRef}
             href={href}
             onClick={onClick}
             className={[
-                'flex items-center gap-3 rounded-r-lg px-4 py-2 text-sm font-medium transition',
+                'flex items-center gap-3 rounded-r-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
                 active
-                    ? 'border-l-4 border-indigo-600 bg-indigo-50 text-indigo-700'
-                    : 'border-l-4 border-transparent text-gray-700 hover:bg-gray-50 hover:text-gray-900',
+                    ? 'border-l-4 border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
+                    : 'border-l-4 border-transparent text-gray-700 hover:bg-gray-50 hover:text-gray-900 hover:translate-x-0.5',
             ].join(' ')}
         >
             <Icon className="h-4 w-4 shrink-0" />
@@ -131,8 +138,10 @@ const featureByHref = {
     '/documents': 'ocr',
     '/bank/reconcile': 'bank_accounts',
     '/reports/bilan': 'advanced_reports',
+    '/reports/predictions': 'advanced_reports',
     '/reports/aged-receivables': 'advanced_reports',
     '/reports/aged-payables': 'advanced_reports',
+    '/reports/analytic-trial-balance': 'advanced_reports',
     '/reports/vat': 'basic_reports',
 };
 
@@ -158,10 +167,13 @@ export default function AuthenticatedLayout({ header, children }) {
         if (hasAll) return true;
         return Array.isArray(allowedFeatures) && allowedFeatures.includes(feature);
     };
-    const navGroups = buildNavGroups(roles);
+    const navGroups = useMemo(() => buildNavGroups(roles), [roles]);
     const currentPlanCode = subscription?.plan?.code ?? null;
     const shouldShowUpgradeNudge = !subscription || ['trial', 'starter', 'pro'].includes(currentPlanCode);
     const [upgradeNudgeVisible, setUpgradeNudgeVisible] = useState(false);
+    const [openGroups, setOpenGroups] = useState({});
+    const navScrollRef = useRef(null);
+    const activeLinkRef = useRef(null);
 
     useEffect(() => {
         if (!trialBannerStorageKey) return;
@@ -181,6 +193,76 @@ export default function AuthenticatedLayout({ header, children }) {
         return () => window.clearInterval(timer);
     }, [shouldShowUpgradeNudge]);
 
+    useEffect(() => {
+        setOpenGroups((previous) => {
+            const next = {};
+            let changed = false;
+
+            navGroups.forEach((group, idx) => {
+                const hasActiveItem = group.items.some((item) => isActiveLink(url, item.href));
+                const shouldBeOpen = group.label ? (previous[idx] ?? hasActiveItem) || hasActiveItem : true;
+                next[idx] = shouldBeOpen;
+
+                if (previous[idx] !== shouldBeOpen) {
+                    changed = true;
+                }
+            });
+
+            if (!changed && Object.keys(previous).length === navGroups.length) {
+                return previous;
+            }
+
+            return next;
+        });
+    }, [navGroups, url]);
+
+    useEffect(() => {
+        const scrollActiveIntoSidebarView = () => {
+            const navEl = navScrollRef.current;
+            const activeEl = activeLinkRef.current;
+            if (!navEl || !activeEl) return;
+
+            const margin = 12;
+            const linkTopInNav = activeEl.offsetTop;
+            const linkBottomInNav = linkTopInNav + activeEl.offsetHeight;
+            const visibleTop = navEl.scrollTop;
+            const visibleBottom = visibleTop + navEl.clientHeight;
+
+            const isAbove = linkTopInNav < visibleTop + margin;
+            const isBelow = linkBottomInNav > visibleBottom - margin;
+            if (!isAbove && !isBelow) return;
+
+            const centeredTop = linkTopInNav - (navEl.clientHeight / 2) + (activeEl.offsetHeight / 2);
+            const maxTop = Math.max(0, navEl.scrollHeight - navEl.clientHeight);
+
+            navEl.scrollTo({
+                top: Math.min(Math.max(0, centeredTop), maxTop),
+                behavior: 'smooth',
+            });
+        };
+
+        const rafId = window.requestAnimationFrame(scrollActiveIntoSidebarView);
+        const timeoutId = window.setTimeout(scrollActiveIntoSidebarView, 260);
+
+        return () => {
+            window.cancelAnimationFrame(rafId);
+            window.clearTimeout(timeoutId);
+        };
+    }, [url, mobileOpen, openGroups]);
+
+    const toggleGroup = (groupIndex) => {
+        const group = navGroups[groupIndex];
+        if (!group?.label) return;
+
+        const hasActiveItem = group.items.some((item) => isActiveLink(url, item.href));
+        if (hasActiveItem) return;
+
+        setOpenGroups((previous) => ({
+            ...previous,
+            [groupIndex]: !previous[groupIndex],
+        }));
+    };
+
     const sidebar = (
         <div className="flex h-full flex-col bg-white">
             <div className="shrink-0 border-b border-gray-200 px-5 py-4">
@@ -188,19 +270,35 @@ export default function AuthenticatedLayout({ header, children }) {
                 <div className="mt-1 text-xs text-gray-500">Comptabilité PME Algérie</div>
             </div>
 
-            <nav className="flex-1 overflow-y-auto px-2 py-3">
+            <nav ref={navScrollRef} className="flex-1 overflow-y-auto px-2 py-3">
                 {navGroups.map((group, idx) => (
                     <div key={idx} className={idx > 0 ? 'mt-4' : ''}>
                         {group.label && (
-                            <div className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                                {group.label}
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() => toggleGroup(idx)}
+                                className="flex w-full items-center justify-between px-4 pb-1 text-base font-semibold tracking-wide text-gray-500 transition-colors hover:text-gray-700"
+                            >
+                                <span>{group.label}</span>
+                                <ChevronDown
+                                    className={[
+                                        'h-3.5 w-3.5 transition-transform duration-200',
+                                        openGroups[idx] ? 'rotate-180' : '',
+                                    ].join(' ')}
+                                />
+                            </button>
                         )}
-                        <div className="space-y-0.5">
+                        <div
+                            className={[
+                                'space-y-0.5 overflow-hidden transition-all duration-300',
+                                openGroups[idx] ? 'max-h-[32rem] opacity-100' : 'max-h-0 opacity-0 pointer-events-none',
+                            ].join(' ')}
+                        >
                             {group.items.map((item) => (
                                 (() => {
                                     const feature = featureByHref[item.href] ?? null;
                                     const allowed = canUseFeature(feature);
+                                    const isActive = isActiveLink(url, item.href);
 
                                     if (allowed) {
                                         return (
@@ -209,7 +307,8 @@ export default function AuthenticatedLayout({ header, children }) {
                                                 href={item.href}
                                                 label={item.label}
                                                 icon={item.icon}
-                                                active={isActiveLink(url, item.href)}
+                                                active={isActive}
+                                                linkRef={isActive ? activeLinkRef : null}
                                                 onClick={() => setMobileOpen(false)}
                                             />
                                         );
@@ -220,7 +319,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                             key={item.href}
                                             href="/billing/checkout"
                                             onClick={() => setMobileOpen(false)}
-                                            className="flex items-center justify-between gap-3 rounded-r-lg border-l-4 border-transparent px-4 py-2 text-sm font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                            className="flex items-center justify-between gap-3 rounded-r-lg border-l-4 border-transparent px-4 py-2.5 text-sm font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                                             title="Fonctionnalité verrouillée — passez au plan supérieur"
                                         >
                                             <span className="flex min-w-0 items-center gap-3">
@@ -408,7 +507,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
                 )}
 
-                <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+                <main className="px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
             </div>
         </div>
     );
