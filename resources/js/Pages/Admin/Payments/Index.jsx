@@ -81,7 +81,7 @@ export default function AdminPaymentsIndex({ payments }) {
                                         <td className="px-4 py-3 text-slate-700">{p.plan?.name ?? '—'}</td>
                                         <td className="px-4 py-3">
                                             <span className="text-xs text-slate-600">
-                                                {p.gateway} / {p.method}
+                                                {p.gateway === 'bon_de_commande' ? 'Bon de commande' : 'Chargily'} / {p.method}
                                             </span>
                                         </td>
                                         <td className="px-4 py-3">
@@ -100,6 +100,16 @@ export default function AdminPaymentsIndex({ payments }) {
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex flex-wrap justify-end gap-2">
+                                                {p.gateway === 'bon_de_commande' && p.proof_upload_path && (
+                                                    <a
+                                                        href={route('admin.payments.proof', p.id)}
+                                                        className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                    >
+                                                        Voir justificatif
+                                                    </a>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => confirmPayment(p.id)}

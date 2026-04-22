@@ -186,6 +186,8 @@ export default function AuthenticatedLayout({ header, children }) {
     const [upgradeBannerDismissed, setUpgradeBannerDismissed] = useState(false);
     const [openGroups, setOpenGroups] = useState({});
     const [quickQuery, setQuickQuery] = useState('');
+    const [quickResults, setQuickResults] = useState([]);
+    const [quickLoading, setQuickLoading] = useState(false);
     const [selectedFiscalYear, setSelectedFiscalYear] = useState(String(new Date().getFullYear()));
     const [accountMenuOpen, setAccountMenuOpen] = useState(false);
     const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -194,6 +196,7 @@ export default function AuthenticatedLayout({ header, children }) {
     const navScrollRef = useRef(null);
     const activeLinkRef = useRef(null);
     const lastAutoScrolledUrlRef = useRef(null);
+    const quickSearchAbortRef = useRef(null);
 
     useEffect(() => {
         if (!trialBannerStorageKey) return;
@@ -567,17 +570,52 @@ export default function AuthenticatedLayout({ header, children }) {
         </div>
     );
 
-    const quickActions = [
-        { href: '/invoices/create', label: 'Créer une facture' },
-        { href: '/quotes/create', label: 'Créer un devis' },
-        { href: '/expenses/create', label: 'Ajouter une dépense' },
-        { href: '/ledger/entries/create', label: 'Saisir une écriture' },
-        { href: '/bank/reconcile', label: 'Rapprocher la banque' },
-    ];
+    useEffect(() => {
+        const query = quickQuery.trim();
 
-    const filteredQuickActions = quickActions.filter((action) =>
-        action.label.toLowerCase().includes(quickQuery.trim().toLowerCase())
-    );
+        if (query.length < 2) {
+            if (quickSearchAbortRef.current) {
+                quickSearchAbortRef.current.abort();
+                quickSearchAbortRef.current = null;
+            }
+            setQuickResults([]);
+            setQuickLoading(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        quickSearchAbortRef.current = controller;
+        setQuickLoading(true);
+
+        const timer = window.setTimeout(async () => {
+            try {
+                const response = await fetch(`/search/global?q=${encodeURIComponent(query)}`, {
+                    headers: { Accept: 'application/json' },
+                    signal: controller.signal,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Search failed with status ${response.status}`);
+                }
+
+                const payload = await response.json();
+                setQuickResults(Array.isArray(payload.results) ? payload.results : []);
+            } catch (error) {
+                if (error?.name !== 'AbortError') {
+                    setQuickResults([]);
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setQuickLoading(false);
+                }
+            }
+        }, 220);
+
+        return () => {
+            window.clearTimeout(timer);
+            controller.abort();
+        };
+    }, [quickQuery]);
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -645,20 +683,35 @@ export default function AuthenticatedLayout({ header, children }) {
                                     </div>
                                     {quickQuery.trim().length > 0 && (
                                         <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                                            {filteredQuickActions.length > 0 ? (
-                                                filteredQuickActions.map((action) => (
+                                            {quickLoading && (
+                                                <div className="px-3 py-2 text-xs text-slate-500">
+                                                    Recherche globale en cours...
+                                                </div>
+                                            )}
+                                            {!quickLoading && quickResults.length > 0 ? (
+                                                quickResults.map((result, index) => (
                                                     <Link
-                                                        key={action.href}
-                                                        href={action.href}
+                                                        key={`${result.type}-${result.href}-${index}`}
+                                                        href={result.href}
                                                         onClick={() => setQuickQuery('')}
                                                         className="block px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"
                                                     >
-                                                        {action.label}
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="truncate font-medium">{result.title}</span>
+                                                            <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400">
+                                                                {result.section}
+                                                            </span>
+                                                        </div>
+                                                        {result.description && (
+                                                            <div className="truncate text-xs text-slate-500">{result.description}</div>
+                                                        )}
                                                     </Link>
                                                 ))
                                             ) : (
                                                 <div className="px-3 py-2 text-xs text-slate-500">
-                                                    Aucune action trouvée
+                                                    {quickQuery.trim().length < 2
+                                                        ? 'Tapez au moins 2 caractères'
+                                                        : 'Aucun résultat'}
                                                 </div>
                                             )}
                                         </div>

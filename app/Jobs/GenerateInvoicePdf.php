@@ -11,10 +11,9 @@ class GenerateInvoicePdf implements ShouldQueue
 {
     use Queueable;
 
-    public string $queue = 'pdf';
-
     public function __construct(public string $invoiceId)
     {
+        $this->onQueue('pdf');
     }
 
     public function handle(PdfService $pdfService): void

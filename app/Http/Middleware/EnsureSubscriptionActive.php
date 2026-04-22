@@ -3,12 +3,17 @@
 namespace App\Http\Middleware;
 
 use App\Models\Company;
+use App\Services\SubscriptionService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureSubscriptionActive
 {
+    public function __construct(private readonly SubscriptionService $subscriptionService)
+    {
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
         if (! $request->user()) {
@@ -21,7 +26,18 @@ class EnsureSubscriptionActive
 
         /** @var Company $company */
         $company = app('currentCompany');
+        /** @var \App\Models\Subscription|null $subscription */
         $subscription = $company->subscription()->first();
+
+        if (
+            $subscription &&
+            $subscription->next_plan_id &&
+            $subscription->next_change_effective_at &&
+            $subscription->next_change_effective_at->isPast()
+        ) {
+            $this->subscriptionService->applyScheduledChanges($subscription);
+            $subscription->refresh();
+        }
 
         if (! $subscription) {
             return redirect()->route('billing.index')

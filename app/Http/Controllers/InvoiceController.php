@@ -57,19 +57,21 @@ class InvoiceController extends Controller
             ->with(['contact:id,display_name'])
             ->withSum('payments as total_paid_amount', 'amount');
 
+        $totalPaidSql = 'COALESCE((select sum("invoice_payments"."amount") from "invoice_payments" where "invoices"."id" = "invoice_payments"."invoice_id" and "invoice_payments"."deleted_at" is null and "invoice_payments"."company_id" = ?), 0)';
+
         if ($status === 'paid') {
             $query->where('status', 'paid');
         } elseif ($status === 'overdue') {
             $query->whereIn('status', ['issued', 'partially_paid'])
                 ->whereDate('due_date', '<', now()->toDateString())
-                ->havingRaw('COALESCE(total_paid_amount, 0) < total_ttc');
+                ->whereRaw($totalPaidSql.' < total_ttc', [$company->id]);
         } elseif ($status === 'unpaid') {
             $query->where('status', 'issued')
                 ->where(function ($q) {
                     $q->whereNull('due_date')
                         ->orWhereDate('due_date', '>=', now()->toDateString());
                 })
-                ->havingRaw('COALESCE(total_paid_amount, 0) <= 0');
+                ->whereRaw($totalPaidSql.' <= 0', [$company->id]);
         } elseif ($status) {
             $query->where('status', $status);
         }

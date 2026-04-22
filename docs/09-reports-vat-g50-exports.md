@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Explain reporting modules, VAT/G50-oriented logic, and asynchronous export workflow.
+Explain reporting modules, VAT/G50-oriented logic, asynchronous export architecture, and operational safeguards around report generation.
 
 ## Reports Covered
 
@@ -11,12 +11,25 @@ Explain reporting modules, VAT/G50-oriented logic, and asynchronous export workf
 - Aged receivables/payables
 - Analytic trial balance
 - Management predictions
+- Report runs index and downloadable artifacts
 
 ## VAT and G50 Positioning
 
 - VAT computations are built by `VatReportService`.
 - Tax rates include reporting metadata (`G50-L*`) used for compliance-oriented mapping.
 - Current implementation focuses on VAT aggregation and exports; it is not a full standalone G50 form editor.
+
+## Report Execution Modes
+
+### Synchronous Views
+
+- most report pages render computed summaries directly for browsing.
+
+### Asynchronous Exports
+
+- heavy exports are enqueued to background workers,
+- `report_run` acts as lifecycle state record,
+- users poll status and download artifacts when completed.
 
 ## Async Export Architecture
 
@@ -37,6 +50,18 @@ flowchart TD
     RunsPage --> Download[DownloadEndpoint]
 ```
 
+## Report Run Lifecycle
+
+Typical status progression:
+
+- queued -> running -> completed, or
+- queued/running -> failed.
+
+Operational controls:
+
+- retention sweep deletes old artifacts and stale rows,
+- stuck-run reaper marks overlong "running" rows as failed for user recovery.
+
 ## Rate-Limit Protections
 
 Exports and poll/download endpoints are throttled to protect worker capacity and bandwidth.
@@ -46,6 +71,7 @@ Exports and poll/download endpoints are throttled to protect worker capacity and
 - User closes page during generation: run continues server-side.
 - Job failure: run status records failure and message.
 - Expired artifact: download fails gracefully and should be regenerated.
+- Poll loops from multiple tabs are bounded by dedicated poll limiter.
 
 ## Beginner note
 
@@ -59,10 +85,12 @@ New heavy reports should follow the existing `ReportRunService` + queue model in
 
 - `app/Http/Controllers/ReportController.php`
 - `app/Http/Controllers/ReportRunController.php`
+- `routes/console.php`
 - `app/Services/VatReportService.php`
 - `app/Services/BilanService.php`
 - `app/Services/AnalyticReportService.php`
 - `app/Services/Reports/ReportRunService.php`
 - `app/Jobs/Reports/*`
+- `app/Providers/RateLimiterServiceProvider.php`
 - `resources/js/Pages/Reports/*`
 

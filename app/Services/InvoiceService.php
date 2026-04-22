@@ -21,6 +21,7 @@ class InvoiceService
         protected ComplianceEngine $compliance,
         protected JournalService $journal,
         protected PdfService $pdf,
+        protected SequenceService $sequences,
     ) {}
 
     public function saveLines(Invoice $invoice, array $linesData): void
@@ -191,15 +192,22 @@ class InvoiceService
         $originalInvoice->load('lines');
 
         return DB::transaction(function () use ($originalInvoice, $company) {
+            $issueDate = now()->toDateString();
+            $allocated = $this->sequences->nextInvoiceNumber(
+                companyId: $company->id,
+                documentType: 'credit_note',
+                issueDate: $issueDate,
+            );
+
             $creditNote = Invoice::create([
                 'company_id' => $company->id,
-                'sequence_id' => $originalInvoice->sequence_id,
-                'invoice_number' => null,
+                'sequence_id' => $allocated['sequence_id'],
+                'invoice_number' => $allocated['number'],
                 'document_type' => 'credit_note',
                 'status' => 'draft',
                 'contact_id' => $originalInvoice->contact_id,
                 'client_snapshot' => null,
-                'issue_date' => now()->toDateString(),
+                'issue_date' => $issueDate,
                 'due_date' => null,
                 'payment_mode' => $originalInvoice->payment_mode,
                 'currency' => $originalInvoice->currency,

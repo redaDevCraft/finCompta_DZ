@@ -7,8 +7,10 @@ use App\Models\Payment;
 use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class PaymentConfirmationController extends Controller
 {
@@ -28,8 +30,16 @@ class PaymentConfirmationController extends Controller
 
     public function confirm(Payment $payment, SubscriptionService $subscriptions): RedirectResponse
     {
+        if (! in_array($payment->gateway, ['bon_de_commande', 'chargily'], true)) {
+            return back()->withErrors(['payment' => 'Passerelle de paiement non supportée pour la validation.']);
+        }
+
         if (! in_array($payment->status, ['pending', 'processing'], true)) {
             return back()->withErrors(['payment' => 'Ce paiement ne peut plus être confirmé.']);
+        }
+
+        if (! $payment->plan || ! $payment->company) {
+            return back()->withErrors(['payment' => 'Le plan ou la société liés à ce paiement sont invalides.']);
         }
 
         if ($payment->gateway === 'bon_de_commande' && empty($payment->proof_upload_path)) {
@@ -58,6 +68,19 @@ class PaymentConfirmationController extends Controller
             return back()->withErrors(['payment' => 'La seconde validation doit être faite par un autre admin.']);
         }
 
+        $subscription = $payment->subscription
+            ?? $payment->company?->subscription()->first();
+        if (
+            $subscription &&
+            $subscription->next_plan_id &&
+            $subscription->pending_change_reason === 'downgrade' &&
+            $subscription->next_plan_id !== $payment->plan_id
+        ) {
+            return back()->withErrors([
+                'payment' => 'Ce paiement ne correspond pas au plan de downgrade programmé.',
+            ]);
+        }
+
         $subscriptions->markPaymentSucceeded($payment);
         $payment->update([
             'approval_status' => 'approved',
@@ -80,6 +103,10 @@ class PaymentConfirmationController extends Controller
             return back()->withErrors(['payment' => 'Ce paiement est déjà payé.']);
         }
 
+        if ($payment->status === 'failed') {
+            return back()->withErrors(['payment' => 'Ce paiement est déjà rejeté.']);
+        }
+
         $subscriptions->markPaymentFailed($payment, $validated['reason'] ?? 'rejet_admin');
         $payment->update([
             'approval_status' => 'rejected',
@@ -90,5 +117,18 @@ class PaymentConfirmationController extends Controller
         return redirect()
             ->route('admin.payments.index')
             ->with('success', 'Paiement '.$payment->reference.' rejeté.');
+    }
+
+    public function downloadProof(Payment $payment): BinaryFileResponse
+    {
+        abort_unless($payment->gateway === 'bon_de_commande', 404);
+        abort_unless($payment->proof_upload_path && Storage::disk('local')->exists($payment->proof_upload_path), 404);
+
+        $extension = pathinfo($payment->proof_upload_path, PATHINFO_EXTENSION) ?: 'bin';
+
+        return response()->download(
+            Storage::disk('local')->path($payment->proof_upload_path),
+            'justificatif-'.$payment->reference.'.'.$extension
+        );
     }
 }

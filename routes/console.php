@@ -50,3 +50,9 @@ Schedule::command('reports:reap-stuck --older-than=60 --limit=200')
     ->everyFifteenMinutes()
     ->withoutOverlapping(10)
     ->onFailure(fn () => logger()->error('Scheduled reports:reap-stuck failed'));
+
+Schedule::command('subscriptions:apply-scheduled-changes --limit=500')
+    ->dailyAt('02:30')
+    ->withoutOverlapping(60)
+    ->runInBackground()
+    ->onFailure(fn () => logger()->error('Scheduled subscriptions:apply-scheduled-changes failed'));

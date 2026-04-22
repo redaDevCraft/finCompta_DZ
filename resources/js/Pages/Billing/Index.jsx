@@ -23,7 +23,15 @@ const PAY_BADGE = {
     expired:    { label: 'Expiré',       cls: 'bg-slate-200 text-slate-700' },
 };
 
-export default function BillingIndex({ subscription, plans = [], payments = [], refund_requests = [], chargily_ready }) {
+const APPROVAL_BADGE = {
+    proof_missing: { label: 'Justificatif manquant', cls: 'bg-amber-100 text-amber-700' },
+    proof_uploaded: { label: 'En validation', cls: 'bg-blue-100 text-blue-700' },
+    awaiting_second_approval: { label: 'Double validation', cls: 'bg-indigo-100 text-indigo-700' },
+    approved: { label: 'Approuvé', cls: 'bg-emerald-100 text-emerald-700' },
+    rejected: { label: 'Rejeté', cls: 'bg-rose-100 text-rose-700' },
+};
+
+export default function BillingIndex({ subscription, plans = [], payments = [], refund_requests = [], has_active_bon = false, chargily_ready }) {
     const refundForm = useForm({
         payment_id: '',
         reason: '',
@@ -42,6 +50,18 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
             <Head title="Facturation" />
 
             <div className="space-y-8">
+                {has_active_bon && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        Un bon de commande est déjà en cours de traitement pour votre abonnement.
+                    </div>
+                )}
+
+                {subscription?.has_scheduled_change && subscription?.next_change_effective_at && (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                        Changement planifié ({subscription.pending_change_reason ?? 'abonnement'}) — effet le {new Date(subscription.next_change_effective_at).toLocaleDateString('fr-FR')}.
+                    </div>
+                )}
+
                 {/* ── Subscription card ─────────────────────────── */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -175,6 +195,7 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
                                     <th className="px-4 py-3 text-left">Mode</th>
                                     <th className="px-4 py-3 text-right">Montant</th>
                                     <th className="px-4 py-3 text-center">Statut</th>
+                                    <th className="px-4 py-3 text-center">Validation</th>
                                     <th className="px-4 py-3 text-right">Action</th>
                                 </tr>
                             </thead>
@@ -192,6 +213,14 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
                                             <td className="px-4 py-3 text-right font-semibold">{formatDzd(p.amount_dzd)}</td>
                                             <td className="px-4 py-3 text-center">
                                                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${s.cls}`}>{s.label}</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {p.gateway === 'bon_de_commande' ? (() => {
+                                                    const approval = APPROVAL_BADGE[p.approval_status] ?? { label: p.approval_status ?? 'none', cls: 'bg-slate-100 text-slate-700' };
+                                                    return (
+                                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${approval.cls}`}>{approval.label}</span>
+                                                    );
+                                                })() : '—'}
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 {p.gateway === 'bon_de_commande' ? (
@@ -211,7 +240,7 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
                                     );
                                 }) : (
                                     <tr>
-                                        <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
+                                        <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
                                             Aucun paiement pour le moment.
                                         </td>
                                     </tr>

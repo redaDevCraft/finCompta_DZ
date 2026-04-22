@@ -40,6 +40,20 @@ This documentation is written in English and targets two audiences:
   - `resources/js/*`
 - If implementation changes, update the relevant chapter and glossary entries in the same pull request.
 
+## Architecture Addons (Current)
+
+Recent architecture updates reflected in this documentation set:
+
+- Deferred subscription transitions (scheduled plan/cycle changes).
+- Manual payment approval workflow with optional second approval.
+- Bon de commande generation + proof upload lifecycle.
+- Global notification provider for flash/errors/confirm dialogs.
+- Expanded rate-limit buckets for billing, reports, and trial funnel.
+- Scheduled maintenance command for applying due subscription changes.
+- Invoice PDF generation as background queue job on issuance.
+
+If any of these flows change in code, update chapters `02`, `03`, `04`, `06`, `11`, and `12` together.
+
 ## Documentation Conventions
 
 - Every chapter uses this structure:

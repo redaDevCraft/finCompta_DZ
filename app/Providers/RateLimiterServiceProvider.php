@@ -104,6 +104,27 @@ class RateLimiterServiceProvider extends ServiceProvider
         RateLimiter::for('billing-checkout', fn (Request $request) => [
             Limit::perMinute(5)->by($this->userKey($request, 'billing-checkout')),
         ]);
+
+        /*
+         * billing-bon — /billing/bon
+         *
+         * Bon de commande generation can be spammed accidentally or by
+         * scripts. 3/hour/user+tenant keeps room for retries while
+         * reducing duplicate offline payment intents.
+         */
+        RateLimiter::for('billing-bon', fn (Request $request) => [
+            Limit::perHour(3)->by($this->userKey($request, 'billing-bon')),
+        ]);
+
+        /*
+         * trial-start — /start-trial
+         *
+         * Public endpoint, so key by user when available and IP fallback.
+         * This limits trial funnel abuse and repeated company creation loops.
+         */
+        RateLimiter::for('trial-start', fn (Request $request) => [
+            Limit::perHour(8)->by($this->userKey($request, 'trial-start')),
+        ]);
     }
 
     /**

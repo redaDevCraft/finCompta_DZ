@@ -37,6 +37,11 @@ class BillingController extends Controller
             ->orderByDesc('created_at')
             ->limit(25)
             ->get();
+        $hasActiveBon = Payment::query()
+            ->where('company_id', $company->id)
+            ->where('gateway', 'bon_de_commande')
+            ->whereIn('status', ['pending', 'processing'])
+            ->exists();
         $refundRequests = RefundRequest::query()
             ->where('company_id', $company->id)
             ->with('payment:id,reference')
@@ -52,6 +57,10 @@ class BillingController extends Controller
                 'trial_ends_at' => optional($subscription->trial_ends_at)?->toIso8601String(),
                 'current_period_ends_at' => optional($subscription->current_period_ends_at)?->toIso8601String(),
                 'grace_ends_at' => optional($subscription->grace_ends_at)?->toIso8601String(),
+                'next_change_effective_at' => optional($subscription->next_change_effective_at)?->toIso8601String(),
+                'pending_change_reason' => $subscription->pending_change_reason,
+                'next_billing_cycle' => $subscription->next_billing_cycle,
+                'has_scheduled_change' => $subscription->hasScheduledChange(),
                 'days_remaining' => $subscription->daysRemaining(),
                 'is_on_trial' => $subscription->isOnTrial(),
                 'is_active' => $subscription->isActive(),
@@ -64,6 +73,7 @@ class BillingController extends Controller
             ] : null,
             'plans' => $plans,
             'payments' => $payments,
+            'has_active_bon' => $hasActiveBon,
             'refund_requests' => $refundRequests,
             'chargily_ready' => app(ChargilyService::class)->isConfigured(),
         ]);
@@ -115,6 +125,37 @@ class BillingController extends Controller
         $plan = Plan::query()->where('code', $validated['plan_code'])->firstOrFail();
         $subscription = $company->subscription()->first();
 
+        if (
+            $subscription &&
+            $subscription->plan_id === $plan->id &&
+            $subscription->billing_cycle === 'yearly' &&
+            $validated['cycle'] === 'monthly'
+        ) {
+            return redirect()->route('billing.index')
+                ->withErrors(['payment' => 'Le passage annuel vers mensuel est indisponible pour le moment.']);
+        }
+
+        if ($this->hasActivePaymentForSubscription($subscription?->id, $company->id)) {
+            return redirect()
+                ->route('billing.index')
+                ->withErrors(['payment' => 'Un paiement est déjà en cours pour cet abonnement. Finalisez-le avant d’en créer un nouveau.']);
+        }
+
+        $inFlightChargily = Payment::query()
+            ->where('company_id', $company->id)
+            ->where('subscription_id', $subscription?->id)
+            ->where('plan_id', $plan->id)
+            ->where('billing_cycle', $validated['cycle'])
+            ->where('gateway', 'chargily')
+            ->where('status', 'processing')
+            ->whereNotNull('checkout_url')
+            ->latest()
+            ->first();
+
+        if ($inFlightChargily) {
+            return redirect()->route('billing.chargily.redirect', $inFlightChargily);
+        }
+
         $payment = Payment::create([
             'company_id' => $company->id,
             'subscription_id' => $subscription?->id,
@@ -126,6 +167,14 @@ class BillingController extends Controller
             'currency' => 'DZD',
             'status' => 'pending',
             'approval_status' => 'none',
+            'meta' => [
+                'plan_code' => $plan->code,
+                'cycle' => $validated['cycle'],
+                'company_snapshot' => [
+                    'raison_sociale' => $company->raison_sociale,
+                    'nif' => $company->nif,
+                ],
+            ],
         ]);
 
         $result = $chargily->createCheckout(
@@ -252,6 +301,13 @@ class BillingController extends Controller
             return response('duplicate ignored', 200);
         }
 
+        if (
+            $payment->status === 'paid' &&
+            in_array($event, ['checkout.paid', 'checkout.succeeded', 'payment.succeeded'], true)
+        ) {
+            return response('already paid', 200);
+        }
+
         if (! $this->isWebhookModeSafe($entity)) {
             Log::warning('Chargily webhook rejected because mode mismatch.', [
                 'event' => $event,
@@ -286,6 +342,9 @@ class BillingController extends Controller
         if (in_array($event, ['checkout.paid', 'checkout.succeeded', 'payment.succeeded'], true)) {
             $subscriptions->markPaymentSucceeded($payment);
         } elseif (in_array($event, ['checkout.failed', 'checkout.canceled', 'payment.failed'], true)) {
+            if ($payment->status === 'paid') {
+                return response('already paid', 200);
+            }
             $subscriptions->markPaymentFailed($payment, $entity['failure_reason'] ?? $event);
         }
 
@@ -307,6 +366,22 @@ class BillingController extends Controller
         $plan = Plan::query()->where('code', $validated['plan_code'])->firstOrFail();
         $subscription = $company->subscription()->first();
 
+        if (
+            $subscription &&
+            $subscription->plan_id === $plan->id &&
+            $subscription->billing_cycle === 'yearly' &&
+            $validated['cycle'] === 'monthly'
+        ) {
+            return redirect()->route('billing.index')
+                ->withErrors(['payment' => 'Le passage annuel vers mensuel est indisponible pour le moment.']);
+        }
+
+        if ($this->hasActivePaymentForSubscription($subscription?->id, $company->id)) {
+            return redirect()
+                ->route('billing.index')
+                ->withErrors(['payment' => 'Un autre paiement ou bon de commande est déjà en cours pour cet abonnement.']);
+        }
+
         $payment = Payment::create([
             'company_id' => $company->id,
             'subscription_id' => $subscription?->id,
@@ -318,6 +393,14 @@ class BillingController extends Controller
             'currency' => 'DZD',
             'status' => 'pending',
             'approval_status' => 'proof_missing',
+            'meta' => [
+                'plan_code' => $plan->code,
+                'cycle' => $validated['cycle'],
+                'company_snapshot' => [
+                    'raison_sociale' => $company->raison_sociale,
+                    'nif' => $company->nif,
+                ],
+            ],
         ]);
 
         $pdf = Pdf::loadView('pdf.bon_de_commande', [
@@ -367,6 +450,20 @@ class BillingController extends Controller
         abort_unless($payment->company_id === app('currentCompany')->id, 404);
         abort_unless($payment->gateway === 'bon_de_commande', 404);
 
+        if (
+            $payment->status === 'paid' ||
+            in_array($payment->approval_status, ['approved', 'rejected'], true)
+        ) {
+            return back()->withErrors(['proof' => 'Ce paiement n’accepte plus de justificatif.']);
+        }
+
+        if (
+            ! in_array($payment->status, ['pending', 'processing'], true) ||
+            ! in_array($payment->approval_status, ['proof_missing', 'proof_uploaded'], true)
+        ) {
+            return back()->withErrors(['proof' => 'Le justificatif ne peut pas être modifié dans cet état.']);
+        }
+
         $request->validate([
             'proof' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ]);
@@ -385,6 +482,14 @@ class BillingController extends Controller
 
         $hash = hash_file('sha256', $file->getRealPath());
 
+        $meta = $payment->meta ?? [];
+        $proofUploads = is_array($meta['proof_uploads'] ?? null) ? $meta['proof_uploads'] : [];
+        $proofUploads[] = [
+            'uploaded_at' => now()->toIso8601String(),
+            'uploaded_by' => $request->user()?->id,
+            'filename' => $file->getClientOriginalName(),
+        ];
+
         $payment->update([
             'proof_upload_path' => $path,
             'status' => 'processing',
@@ -393,8 +498,9 @@ class BillingController extends Controller
             'proof_mime' => $detectedMime,
             'proof_size_bytes' => $file->getSize(),
             'proof_sha256' => $hash ?: null,
-            'meta' => array_merge($payment->meta ?? [], [
+            'meta' => array_merge($meta, [
                 'proof_uploaded_at' => now()->toIso8601String(),
+                'proof_uploads' => $proofUploads,
             ]),
         ]);
 
@@ -491,5 +597,14 @@ class BillingController extends Controller
 
         return (int) $amount === (int) $payment->amount_dzd
             && $currency === $expectedCurrency;
+    }
+
+    private function hasActivePaymentForSubscription(?string $subscriptionId, string $companyId): bool
+    {
+        return Payment::query()
+            ->where('company_id', $companyId)
+            ->when($subscriptionId, fn ($query) => $query->where('subscription_id', $subscriptionId))
+            ->whereIn('status', ['pending', 'processing'])
+            ->exists();
     }
 }

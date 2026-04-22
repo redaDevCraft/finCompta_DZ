@@ -106,10 +106,19 @@ return Application::configure(basePath: dirname(__DIR__))
             $status = $e->getStatusCode();
             $message = trim((string) $e->getMessage());
             $hasBusinessMessage = $message !== '';
+            $isInertiaRequest = (bool) $request->header('X-Inertia');
 
             // Business errors raised via abort(422, '...') should surface as
             // user-friendly notifications in Inertia/web flows.
-            if ($hasBusinessMessage && in_array($status, [409, 422], true)) {
+            if ($hasBusinessMessage && in_array($status, [403, 409, 422], true)) {
+                if ($isInertiaRequest) {
+                    if ($request->hasSession()) {
+                        return back()
+                            ->withErrors(['general' => $message])
+                            ->with('error', $message);
+                    }
+                }
+
                 if ($request->expectsJson() || $request->ajax()) {
                     return response()->json([
                         'message' => $message,

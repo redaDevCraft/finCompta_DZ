@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Teach accounting basics in plain language and connect each concept to concrete actions in FinCompta DZ.
+Teach accounting basics in plain language and connect each concept to concrete actions and safeguards inside FinCompta DZ.
 
 ## 1) What Accounting Does
 
@@ -14,6 +14,14 @@ In FinCompta DZ, this happens through:
 - Expenses (purchases/costs)
 - Bank transactions
 - Journal entries
+
+## 1.1) Why The App Has So Many Checks
+
+The app deliberately blocks some operations when rules are unsafe:
+
+- unbalanced journal entries are rejected,
+- locked periods prevent back-dated changes,
+- posted records limit edits to preserve audit traceability.
 
 ## 2) Core Concepts (Simple)
 
@@ -54,6 +62,19 @@ For formal definitions, see `14-accounting-glossary.md`.
 - Report shows deductible vs collected amounts.
 - Export can run asynchronously for large datasets.
 
+### Issue Invoice
+
+- System checks compliance and numbering rules.
+- It freezes key invoice business data (immutability for legal/accounting safety).
+- Sales accounting entry is created.
+- Invoice PDF is generated in background.
+
+### Subscription/Billing Access
+
+- Billing pages stay accessible even if subscription expired.
+- Core accounting pages require active trial/subscription (or grace).
+- This separation lets users recover access by paying without losing account access to billing.
+
 ## 4) Mini Practical Example
 
 Scenario: You buy office supplies for 11,900 DZD (10,000 HT + 1,900 VAT).
@@ -84,6 +105,10 @@ Posted entries and locked periods protect accounting integrity and auditability.
 
 Line-level account mapping or period rules may still fail even if arithmetic seems correct.
 
+### Why is my app access blocked but billing still open?
+
+Because accounting routes require active subscription, but billing remains open so you can renew and restore access.
+
 ## 6) Learning Path
 
 1. Start with contacts, invoices, and expenses.
@@ -91,6 +116,7 @@ Line-level account mapping or period rules may still fail even if arithmetic see
 3. Understand account ledger for one account.
 4. Use trial balance to validate global consistency.
 5. Use VAT report and exports for reporting cycles.
+6. Learn reconciliation/lettering to control receivables, payables, and bank alignment.
 
 ## Related Chapters
 

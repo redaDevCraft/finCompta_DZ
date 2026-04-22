@@ -19,7 +19,10 @@ createInertiaApp({
         if (import.meta.env.SSR) {
             hydrateRoot(
                 el,
-                <NotificationProvider initialFlash={props?.initialPage?.props?.flash}>
+                <NotificationProvider
+                    initialFlash={props?.initialPage?.props?.flash}
+                    initialErrors={props?.initialPage?.props?.errors}
+                >
                     <App {...props} />
                 </NotificationProvider>
             );
@@ -27,7 +30,10 @@ createInertiaApp({
         }
 
         createRoot(el).render(
-            <NotificationProvider initialFlash={props?.initialPage?.props?.flash}>
+            <NotificationProvider
+                initialFlash={props?.initialPage?.props?.flash}
+                initialErrors={props?.initialPage?.props?.errors}
+            >
                 <App {...props} />
             </NotificationProvider>
         );

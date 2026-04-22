@@ -2,56 +2,108 @@
 
 ## Purpose
 
-Describe global admin scope, permissions model, and operational actions available under `/admin`.
+Describe global admin architecture, permission gates, and high-risk operational workflows, especially manual payment validation and subscription-impacting operations.
 
 ## Access Model
 
-- Entry gate: `spatie_role:admin`
-- Feature gates: `spatie_permission:*`
-- Admin scope is global (not tied to a single company context in the same way app routes are).
+- Base gate: `spatie_role:admin`.
+- Action gates: `spatie_permission:*` per module and mutation.
+- Scope: global platform operations (not tenant-bound like normal company user routes).
 
-## Admin Modules
+## Admin Route Structure
 
-- Dashboard overview
-- Payment confirmation/rejection
-- Refund request review
-- Plan and feature management
-- Company listing/detail
-- User admin role toggles
-- Subscription lifecycle operations (cancel, reactivate, extend)
+All admin routes are grouped under `prefix('admin')->name('admin.')` with layered permissions.
 
-## Technical Notes
+Primary modules:
 
-- Routes are grouped under `prefix('admin')->name('admin.')`.
-- Controllers live in `app/Http/Controllers/Admin/*`.
-- Actions that change financial access state are permission-protected.
+- dashboard,
+- payment triage and confirmation,
+- refund request review,
+- plan and feature management,
+- company/user management,
+- subscription lifecycle operations.
 
-## Risk-Sensitive Operations
+## Payment Triage Module (Detailed)
 
-- Payment confirmation affects subscription access.
-- Plan changes affect feature gates and pricing behavior.
-- Admin role toggling changes security boundaries.
+### Listing and Filtering
 
-## Beginner note
+- Shows latest pending/processing payment records with company + plan context.
+- Includes gateway, method, status, approval status, amount.
 
-The admin area is for platform operations, not daily bookkeeping.
+### Manual Confirmation Flow
+
+Controller: `PaymentConfirmationController@confirm`
+
+Validation gates include:
+
+- supported gateway check (`bon_de_commande` or `chargily`),
+- mutable status check (`pending`/`processing` only),
+- linked plan/company consistency,
+- mandatory proof for Bon de commande.
+
+### Double-Approval Mechanism
+
+For high-value manual payments (threshold from config):
+
+1. first admin action sets `approval_status=awaiting_second_approval` and stores approver metadata;
+2. second confirmation must come from another admin;
+3. only then payment is marked succeeded and subscription extended/activated.
+
+### Reject Flow
+
+- Optional reason captured.
+- Payment marked failed via `SubscriptionService`.
+- Audit metadata (`admin_rejected_by`, `admin_rejected_at`) persisted.
+
+### Proof Artifact Access
+
+- Admin can download transfer proof for Bon payments when present.
+- File access is route-protected and streamed from private storage.
+
+## Refund and Subscription Operations
+
+- Refund requests have dedicated admin list/update workflow.
+- Subscription admin actions support cancel/reactivate/extend flows and are permission-separated from read access.
+
+## UI Layer for Admin Operations
+
+`resources/js/Pages/Admin/Payments/Index.jsx` includes:
+
+- table-based triage view,
+- modal confirmations for confirm/reject actions via notification context,
+- optional reject reason draft reused for next reject command.
+
+Global notifications/confirmations come from `NotificationProvider`, ensuring consistent admin UX for risky actions.
+
+## Risk-Sensitive Areas
+
+- Payment confirmation immediately changes tenant access.
+- Plan feature edits affect all downstream entitlement checks.
+- Admin role toggles alter security boundaries platform-wide.
 
 ## Developer note
 
-New admin actions should always:
+Any new admin mutation should include:
 
-1. Introduce explicit permission keys.
-2. Log sensitive changes.
-3. Return clear flash feedback.
+1. explicit permission key,
+2. precondition checks for state transitions,
+3. durable actor/time metadata for auditability,
+4. clear user feedback (success/error flash),
+5. test coverage for negative paths.
+
+## Beginner note
+
+Admin pages are platform-control tools: they manage who can access the product and under what commercial conditions, not bookkeeping entries for a company.
 
 ## Related Files
 
-- `routes/web.php` (admin group)
+- `routes/web.php`
 - `app/Http/Controllers/Admin/AdminDashboardController.php`
 - `app/Http/Controllers/Admin/PaymentConfirmationController.php`
 - `app/Http/Controllers/Admin/RefundRequestAdminController.php`
 - `app/Http/Controllers/Admin/PlanController.php`
 - `app/Http/Controllers/Admin/PlanFeatureController.php`
 - `app/Http/Controllers/Admin/SubscriptionController.php`
-- `resources/js/Pages/Admin/*`
+- `resources/js/Pages/Admin/Payments/Index.jsx`
+- `resources/js/Context/NotificationContext.jsx`
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Document bank reconciliation and ledger lettering (lettrage), including matching logic and user workflows.
+Document bank reconciliation and ledger lettering (lettrage), including matching strategies, audit boundaries, and correction workflows.
 
 ## Concepts
 
@@ -10,6 +10,7 @@ Document bank reconciliation and ledger lettering (lettrage), including matching
 - Lettering (lettrage): match open debit/credit lines on receivable/payable accounts.
 - Manual posting: create new entry when no match exists.
 - Exclusion: mark transaction as intentionally ignored.
+- Deterministic match: reproducible rule-based decision rather than opaque auto-resolution.
 
 ## Bank Reconciliation Flow
 
@@ -24,6 +25,27 @@ Document bank reconciliation and ledger lettering (lettrage), including matching
 2. Select open lines by contact/reference/amount.
 3. Match manually or run automatic matching heuristics.
 4. Unmatch if needed and re-open lines.
+
+## Matching Strategy Model
+
+### Reconciliation Candidate Logic
+
+- amount and sign compatibility,
+- date proximity and reference hints,
+- account/contact consistency where available,
+- manual override when multiple plausible candidates exist.
+
+### Lettering Candidate Logic
+
+- open lines by contact/account family,
+- exact or near amount pairings,
+- partial-settlement support when full one-to-one match is not possible.
+
+## Lifecycle and Audit Safety
+
+- confirming a match changes reconciliation/lettering state that affects reporting clarity.
+- unmatching is supported for correction scenarios.
+- ambiguous scenarios should remain operator-confirmed to preserve audit explainability.
 
 ## Technical Components
 
@@ -54,6 +76,8 @@ Keep matching logic deterministic and auditable; ambiguous cases should prefer u
 - `app/Services/ReconciliationService.php`
 - `app/Http/Controllers/LetteringController.php`
 - `app/Services/LetteringService.php`
+- `app/Models/BankTransaction.php`
+- `app/Models/Lettering.php`
 - `resources/js/Pages/Bank/Reconcile.jsx`
 - `resources/js/Pages/Ledger/Lettering.jsx`
 

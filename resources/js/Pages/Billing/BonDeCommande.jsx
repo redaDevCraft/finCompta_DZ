@@ -41,6 +41,11 @@ export default function BonDeCommande({ payment, payee, admin_email }) {
                     >
                         <Download className="h-4 w-4" /> Télécharger le bon de commande (PDF)
                     </a>
+
+                    <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                        <InfoRow label="Statut paiement" value={payment.status ?? '—'} />
+                        <InfoRow label="Statut validation" value={payment.approval_status ?? '—'} />
+                    </div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -62,7 +67,7 @@ export default function BonDeCommande({ payment, payee, admin_email }) {
                         <Upload className="h-5 w-5 text-slate-700" /> Déposer le justificatif de virement
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                        PDF, JPG ou PNG — 10 Mo max. Votre abonnement sera activé sous 24h après validation.
+                        PDF, JPG ou PNG — 10 Mo max. Votre abonnement sera activé une fois le paiement validé par l’équipe.
                     </p>
                     <form onSubmit={submit} className="mt-4 space-y-3">
                         <input

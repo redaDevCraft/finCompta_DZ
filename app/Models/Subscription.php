@@ -19,8 +19,13 @@ class Subscription extends Model
     protected $fillable = [
         'company_id',
         'plan_id',
+        'next_plan_id',
         'status',
         'billing_cycle',
+        'next_billing_cycle',
+        'next_change_effective_at',
+        'pending_change_reason',
+        'pending_change_requested_at',
         'trial_ends_at',
         'current_period_started_at',
         'current_period_ends_at',
@@ -34,6 +39,8 @@ class Subscription extends Model
         'trial_ends_at' => 'datetime',
         'current_period_started_at' => 'datetime',
         'current_period_ends_at' => 'datetime',
+        'next_change_effective_at' => 'datetime',
+        'pending_change_requested_at' => 'datetime',
         'grace_ends_at' => 'datetime',
         'canceled_at' => 'datetime',
         'cancel_at' => 'datetime',
@@ -57,6 +64,11 @@ class Subscription extends Model
     public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
+    }
+
+    public function nextPlan(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class, 'next_plan_id');
     }
 
     public function payments(): HasMany
@@ -120,5 +132,71 @@ class Subscription extends Model
         }
 
         return max(0, Carbon::now()->diffInDays($target, false));
+    }
+
+    public function hasScheduledChange(): bool
+    {
+        return ! empty($this->next_plan_id) && ! empty($this->next_change_effective_at);
+    }
+
+    public function scheduledPlan(): ?Plan
+    {
+        if (! $this->next_plan_id) {
+            return null;
+        }
+
+        return $this->nextPlan;
+    }
+
+    public function scheduledChangeIsDowngrade(): bool
+    {
+        $currentPlan = $this->plan;
+        $nextPlan = $this->scheduledPlan();
+        if (! $currentPlan || ! $nextPlan) {
+            return false;
+        }
+
+        $nextCycle = $this->next_billing_cycle ?: $this->billing_cycle;
+
+        return $nextPlan->priceForCycle($nextCycle) < $currentPlan->priceForCycle($this->billing_cycle);
+    }
+
+    public function scheduledChangeIsUpgrade(): bool
+    {
+        $currentPlan = $this->plan;
+        $nextPlan = $this->scheduledPlan();
+        if (! $currentPlan || ! $nextPlan) {
+            return false;
+        }
+
+        $nextCycle = $this->next_billing_cycle ?: $this->billing_cycle;
+
+        return $nextPlan->priceForCycle($nextCycle) > $currentPlan->priceForCycle($this->billing_cycle);
+    }
+
+    public function effectivePlan(): ?Plan
+    {
+        if (
+            $this->next_plan_id &&
+            $this->next_change_effective_at &&
+            $this->next_change_effective_at->isPast()
+        ) {
+            return $this->scheduledPlan();
+        }
+
+        return $this->plan;
+    }
+
+    public function effectiveBillingCycle(): string
+    {
+        if (
+            $this->next_billing_cycle &&
+            $this->next_change_effective_at &&
+            $this->next_change_effective_at->isPast()
+        ) {
+            return $this->next_billing_cycle;
+        }
+
+        return $this->billing_cycle ?: 'monthly';
     }
 }

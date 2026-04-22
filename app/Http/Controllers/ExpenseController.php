@@ -192,7 +192,7 @@ class ExpenseController extends Controller
             'account',
             'document',
             'lines.account:id,code,label',
-            'lines.taxRate:id,name,rate_percent',
+            'lines.taxRate:id,label,rate_percent',
             'journalEntry.lines.account',
         ]);
 

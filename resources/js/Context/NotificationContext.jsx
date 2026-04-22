@@ -20,22 +20,43 @@ const IconByType = {
     info: Info,
 };
 
-export function NotificationProvider({ children, initialFlash = null }) {
+const titleByType = {
+    success: 'Succes',
+    error: 'Erreur',
+    warning: 'Avertissement',
+    info: 'Information',
+};
+
+export function NotificationProvider({ children, initialFlash = null, initialErrors = null }) {
     const [items, setItems] = useState([]);
     const [confirmState, setConfirmState] = useState(null);
     const [promptState, setPromptState] = useState(null);
     const lastFlashRef = useRef('');
+    const lastErrorsRef = useRef('');
 
-    const notify = useCallback((type, message, timeoutMs = 4000) => {
+    const notify = useCallback((type, message, optionsOrTimeout = undefined) => {
         const id = `${Date.now()}-${Math.random()}`;
-        setItems((prev) => [...prev, { id, type, message }]);
+        const options = typeof optionsOrTimeout === 'object' && optionsOrTimeout !== null
+            ? optionsOrTimeout
+            : {};
 
-        if (timeoutMs > 0) {
-            window.setTimeout(() => {
-                setItems((prev) => prev.filter((item) => item.id !== id));
-            }, timeoutMs);
-        }
+        setItems((prev) => [
+            ...prev,
+            {
+                id,
+                type,
+                title: options.title ?? titleByType[type] ?? 'Notification',
+                message,
+                actions: Array.isArray(options.actions) ? options.actions : null,
+            },
+        ]);
     }, []);
+
+    const dismissNotification = useCallback((id) => {
+        setItems((prev) => prev.filter((item) => item.id !== id));
+    }, []);
+
+    const activeNotification = items[0] ?? null;
 
     const api = useMemo(
         () => ({
@@ -83,6 +104,7 @@ export function NotificationProvider({ children, initialFlash = null }) {
             const current = JSON.stringify({
                 success: flash.success ?? null,
                 warning: flash.warning ?? null,
+                warnings: flash.warnings ?? null,
                 error: flash.error ?? null,
             });
             if (current === lastFlashRef.current) return;
@@ -90,7 +112,38 @@ export function NotificationProvider({ children, initialFlash = null }) {
 
             if (flash.success) notify('success', flash.success);
             if (flash.warning) notify('warning', flash.warning);
+            if (Array.isArray(flash.warnings)) {
+                flash.warnings
+                    .map((message) => String(message ?? '').trim())
+                    .filter(Boolean)
+                    .forEach((message) => notify('warning', message));
+            }
             if (flash.error) notify('error', flash.error);
+        },
+        [notify]
+    );
+
+    const processErrors = useCallback(
+        (errorsPayload) => {
+            const errors = errorsPayload && typeof errorsPayload === 'object' ? errorsPayload : {};
+            const messages = Object.values(errors)
+                .flatMap((value) => {
+                    if (Array.isArray(value)) return value;
+                    return [value];
+                })
+                .map((value) => String(value ?? '').trim())
+                .filter(Boolean);
+
+            if (messages.length === 0) {
+                lastErrorsRef.current = '';
+                return;
+            }
+
+            const serialized = JSON.stringify(messages);
+            if (serialized === lastErrorsRef.current) return;
+            lastErrorsRef.current = serialized;
+
+            messages.forEach((message) => notify('error', message));
         },
         [notify]
     );
@@ -100,39 +153,95 @@ export function NotificationProvider({ children, initialFlash = null }) {
     }, [initialFlash, processFlash]);
 
     useEffect(() => {
+        processErrors(initialErrors);
+    }, [initialErrors, processErrors]);
+
+    useEffect(() => {
         const removeListener = router.on('success', (event) => {
             processFlash(event?.detail?.page?.props?.flash);
+            processErrors(event?.detail?.page?.props?.errors);
         });
 
         return () => {
             removeListener?.();
         };
-    }, [processFlash]);
+    }, [processFlash, processErrors]);
 
     return (
         <NotificationContext.Provider value={api}>
             {children}
-            <div className="pointer-events-none fixed right-4 top-4 z-[90] flex w-full max-w-sm flex-col gap-2">
-                {items.map((item) => {
-                    const Icon = IconByType[item.type] ?? Info;
-                    return (
-                        <div
-                            key={item.id}
-                            className={`pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2 text-sm shadow ${tone[item.type] ?? tone.info}`}
-                        >
-                            <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p className="flex-1">{item.message}</p>
+            <Modal
+                show={!!activeNotification}
+                maxWidth="md"
+                onClose={() => {
+                    if (activeNotification) dismissNotification(activeNotification.id);
+                }}
+            >
+                {activeNotification && (
+                    <div className="p-5">
+                        <div className={`rounded-lg border p-4 ${tone[activeNotification.type] ?? tone.info}`}>
+                            <div className="flex items-start gap-3">
+                                {(() => {
+                                    const Icon = IconByType[activeNotification.type] ?? Info;
+                                    return <Icon className="mt-0.5 h-5 w-5 shrink-0" />;
+                                })()}
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <h3 className="text-base font-semibold text-slate-900">
+                                            {activeNotification.title}
+                                        </h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => dismissNotification(activeNotification.id)}
+                                            className="rounded p-1 text-slate-500 hover:bg-black/5 hover:text-slate-700"
+                                            aria-label="Fermer la notification"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                    <p className="mt-2 text-sm text-slate-700">{activeNotification.message}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex justify-end gap-2">
+                            {(activeNotification.actions ?? []).map((action, index) => {
+                                const variant = action?.variant ?? 'secondary';
+                                const isPrimary = variant === 'primary';
+                                return (
+                                    <button
+                                        key={`${activeNotification.id}-action-${index}`}
+                                        type="button"
+                                        onClick={() => {
+                                            if (typeof action?.onClick === 'function') {
+                                                action.onClick();
+                                            }
+                                            if (action?.href) {
+                                                router.visit(action.href);
+                                            }
+                                            if (action?.dismiss !== false) {
+                                                dismissNotification(activeNotification.id);
+                                            }
+                                        }}
+                                        className={isPrimary
+                                            ? 'rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700'
+                                            : 'rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50'}
+                                    >
+                                        {action?.label ?? 'Action'}
+                                    </button>
+                                );
+                            })}
                             <button
                                 type="button"
-                                onClick={() => setItems((prev) => prev.filter((x) => x.id !== item.id))}
-                                className="rounded p-0.5 hover:bg-black/5"
+                                onClick={() => dismissNotification(activeNotification.id)}
+                                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
                             >
-                                <X className="h-3.5 w-3.5" />
+                                OK
                             </button>
                         </div>
-                    );
-                })}
-            </div>
+                    </div>
+                )}
+            </Modal>
             <Modal
                 show={!!confirmState}
                 maxWidth="md"

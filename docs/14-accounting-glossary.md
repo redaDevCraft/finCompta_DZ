@@ -23,6 +23,10 @@ Summary by account of total debit, total credit, and net balance for a period.
 
 Balance sheet report showing assets, liabilities, and equity snapshot at a given date.
 
+### Bon de commande
+
+Manual payment workflow artifact generated as a PDF purchase order for subscription payment outside hosted checkout.
+
 ## C
 
 ### Chart of Accounts
@@ -85,6 +89,12 @@ A single debit or credit line inside a journal entry.
 
 Matching open debit/credit lines on receivable/payable accounts to mark settlement progress.
 
+## M
+
+### Middleware
+
+Request checkpoint executed before controller logic (for auth, tenant context, subscription state, permissions, throttling, etc.).
+
 ## P
 
 ### Posting
@@ -101,6 +111,10 @@ Process of matching bank transactions with accounting entries.
 
 Asynchronous export task record (queued, processing, completed, failed).
 
+### Scheduled Subscription Change
+
+Deferred plan/cycle transition stored on subscription and applied at effective date.
+
 ## S
 
 ### SCF
@@ -111,6 +125,10 @@ Algerian accounting framework used to organize accounts and reporting logic.
 
 Temporary access period after payment issues before full feature lock.
 
+### Subscription Middleware (`subscribed`)
+
+Middleware gate that allows access only for trial/active/grace states and redirects to billing when access is no longer valid.
+
 ## T
 
 ### Trial Balance
@@ -120,6 +138,10 @@ Control report proving total debits and total credits remain equal.
 ### TVA (VAT)
 
 Value-added tax tracked on sales and purchases; reported periodically.
+
+### Two-step approval (manual payment)
+
+Admin control requiring two different admins to approve high-value manual subscription payments.
 
 ## Cross-Links
 

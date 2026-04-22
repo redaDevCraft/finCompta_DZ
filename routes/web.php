@@ -19,6 +19,7 @@ use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoicePaymentController;
 use App\Http\Controllers\JournalEntryController;
@@ -44,7 +45,9 @@ use Illuminate\Support\Facades\Route;
 */
 Route::get('/', [LandingController::class, 'home'])->name('landing');
 Route::get('/pricing', [LandingController::class, 'pricing'])->name('landing.pricing');
-Route::get('/start-trial', [LandingController::class, 'startTrial'])->name('landing.start-trial');
+Route::get('/start-trial', [LandingController::class, 'startTrial'])
+    ->middleware('throttle:trial-start')
+    ->name('landing.start-trial');
 Route::get('/legal/terms', [LandingController::class, 'terms'])->name('legal.terms');
 Route::get('/legal/privacy', [LandingController::class, 'privacy'])->name('legal.privacy');
 Route::get('/legal/refund-policy', [LandingController::class, 'refundPolicy'])->name('legal.refund-policy');
@@ -89,6 +92,9 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/payments/{payment}/reject', [PaymentConfirmationController::class, 'reject'])
             ->middleware('spatie_permission:payments.confirm')
             ->name('payments.reject');
+        Route::get('/payments/{payment}/proof', [PaymentConfirmationController::class, 'downloadProof'])
+            ->middleware('spatie_permission:payments.view')
+            ->name('payments.proof');
         Route::get('/refund-requests', [RefundRequestAdminController::class, 'index'])
             ->middleware('spatie_permission:payments.view')
             ->name('refund-requests.index');
@@ -172,7 +178,9 @@ Route::middleware(['auth'])->group(function () {
             ->name('billing.chargily.redirect');
         Route::get('/billing/success/{payment}', [BillingController::class, 'success'])->name('billing.success');
         Route::get('/billing/failure/{payment}', [BillingController::class, 'failure'])->name('billing.failure');
-        Route::post('/billing/bon', [BillingController::class, 'startBonDeCommande'])->name('billing.bon.start');
+        Route::post('/billing/bon', [BillingController::class, 'startBonDeCommande'])
+            ->middleware('throttle:billing-bon')
+            ->name('billing.bon.start');
         Route::get('/billing/bon/{payment}', [BillingController::class, 'showBonDeCommande'])->name('billing.bon.show');
         Route::get('/billing/bon/{payment}/download', [BillingController::class, 'downloadBonDeCommande'])->name('billing.bon.download');
         Route::post('/billing/bon/{payment}/proof', [BillingController::class, 'uploadBonProof'])->name('billing.bon.proof');
@@ -225,6 +233,8 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
             ->name('suggest.contacts');
         Route::get('/suggest/accounts', [SuggestController::class, 'accounts'])
             ->name('suggest.accounts');
+        Route::get('/search/global', GlobalSearchController::class)
+            ->name('search.global');
     });
 
     /* ── Invoices ───────────────────────────────────────────────────── */

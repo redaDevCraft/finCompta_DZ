@@ -72,7 +72,13 @@ class Invoice extends Model
         });
 
         static::updating(function (Invoice $invoice) {
-            if (! $invoice->isImmutable()) {
+            $originalStatus = (string) $invoice->getOriginal('status');
+            $wasImmutable = in_array($originalStatus, ['issued', 'partially_paid', 'paid', 'voided', 'replaced'], true);
+
+            // Allow the draft -> issued transition to persist all issuance fields
+            // atomically (status, issued_at, snapshot, etc). The immutability rule
+            // applies only once the invoice was already immutable before update.
+            if (! $wasImmutable) {
                 return;
             }
 
