@@ -1,5 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     ArrowDownLeft,
     ArrowUpRight,
@@ -90,6 +90,12 @@ const getAmountMatchTone = (txAmount, entryAmount) => {
     return 'gray';
 };
 
+const buildSuggestedDescription = (transaction) => {
+    const raw = String(transaction?.label ?? '').trim();
+    const counterparty = raw ? raw.slice(0, 80) : 'banque';
+    return `Règlement banque ${counterparty}`.trim();
+};
+
 function MatchConfirmBar({ transaction, entry, onConfirm, processing }) {
     if (!transaction || !entry) return null;
 
@@ -159,6 +165,11 @@ function ManualPostModal({
     const [accountId, setAccountId] = useState('');
     const [accountPrefill, setAccountPrefill] = useState(null);
     const [description, setDescription] = useState('');
+
+    useEffect(() => {
+        if (!open || !transaction) return;
+        setDescription(buildSuggestedDescription(transaction));
+    }, [open, transaction?.id]);
 
     if (!open || !transaction) return null;
 
@@ -244,7 +255,6 @@ function ManualPostModal({
                             onChange={(e) => setDescription(e.target.value)}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                             placeholder="Saisir le libellé comptable"
-                            required
                         />
                     </div>
 

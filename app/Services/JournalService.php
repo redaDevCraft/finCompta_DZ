@@ -50,7 +50,7 @@ class JournalService
             'entry_date' => $invoice->issue_date,
             'journal_code' => 'VT',
             'reference' => $invoice->invoice_number,
-            'description' => 'Facture client ' . ($invoice->invoice_number ?? $invoice->id),
+            'description' => $this->buildSalesEntryDescription($invoice),
             'status' => 'draft',
             'source_type' => 'invoice',
             'source_id' => $invoice->id,
@@ -120,6 +120,7 @@ class JournalService
     public function draftPurchaseEntry(Expense $expense, Company $company): JournalEntry
     {
         $expense->loadMissing('lines');
+        $expense->loadMissing('contact');
 
         $period = $this->getOrCreatePeriod($company, Carbon::parse($expense->expense_date));
 
@@ -129,7 +130,7 @@ class JournalService
             'entry_date' => $expense->expense_date,
             'journal_code' => 'AC',
             'reference' => $expense->reference,
-            'description' => $expense->description ?: 'Charge fournisseur',
+            'description' => $this->buildPurchaseEntryDescription($expense),
             'status' => 'draft',
             'source_type' => 'expense',
             'source_id' => $expense->id,
@@ -269,7 +270,7 @@ class JournalService
             'entry_date' => $reverseDate->toDateString(),
             'journal_code' => $original->journal_code,
             'reference' => 'EXTOURNE — '.($original->reference ?? $original->id),
-            'description' => $reason ?: ('Extourne de '.($original->reference ?? $original->id)),
+            'description' => $this->buildReversalDescription($original, $reason),
             'status' => 'draft',
             'source_type' => 'reversal',
             'source_id' => $original->id,
@@ -328,5 +329,42 @@ class JournalService
         }
 
         return $this->findAccount($company, '701');
+    }
+
+    private function buildSalesEntryDescription(Invoice $invoice): string
+    {
+        $base = 'Facture client '.($invoice->invoice_number ?? $invoice->id);
+        $contactName = trim((string) ($invoice->contact?->display_name ?? ''));
+
+        if ($contactName === '') {
+            return $base;
+        }
+
+        return $base.' — '.$contactName;
+    }
+
+    private function buildPurchaseEntryDescription(Expense $expense): string
+    {
+        $description = trim((string) ($expense->description ?? ''));
+        if ($description !== '') {
+            return $description;
+        }
+
+        $contactName = trim((string) ($expense->contact?->display_name ?? ''));
+        if ($contactName !== '') {
+            return 'Achat '.$contactName;
+        }
+
+        return 'Charge fournisseur';
+    }
+
+    private function buildReversalDescription(JournalEntry $original, ?string $reason): string
+    {
+        $customReason = trim((string) ($reason ?? ''));
+        if ($customReason !== '') {
+            return $customReason;
+        }
+
+        return 'Extourne de '.($original->reference ?? $original->id);
     }
 }

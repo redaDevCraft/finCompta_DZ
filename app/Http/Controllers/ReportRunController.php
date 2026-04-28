@@ -38,11 +38,15 @@ class ReportRunController extends Controller
                 'id', 'company_id', 'user_id', 'type', 'params', 'status',
                 'original_filename', 'artifact_bytes', 'error_message',
                 'started_at', 'completed_at', 'created_at', 'expires_at',
+                'storage_disk', 'storage_path',
             ])
             ->orderByDesc('created_at')
             ->limit(100)
             ->get()
-            ->map(fn (ReportRun $run) => $this->shapeRun($run));
+            ->map(function (ReportRun $run) {
+                // We need to make sure the download_url is only returned if the artifact exists AND run is ready
+                return $this->shapeRunWithArtifactCheck($run);
+            });
 
         return Inertia::render('Reports/Exports', [
             'runs' => $runs,
@@ -56,7 +60,7 @@ class ReportRunController extends Controller
      */
     public function show(ReportRun $reportRun): JsonResponse
     {
-        return response()->json($this->shapeRun($reportRun));
+        return response()->json($this->shapeRunWithArtifactCheck($reportRun));
     }
 
     public function download(ReportRun $reportRun): StreamedResponse
@@ -106,10 +110,24 @@ class ReportRunController extends Controller
     }
 
     /**
+     * Checks if the artifact actually exists before exposing a download URL,
+     * even for ready reports, to prevent null links.
+     *
      * @return array<string, mixed>
      */
-    private function shapeRun(ReportRun $run): array
+    private function shapeRunWithArtifactCheck(ReportRun $run): array
     {
+        $artifactExists = false;
+
+        if ($run->isReady() && $run->storage_disk && $run->storage_path) {
+            try {
+                $disk = Storage::disk($run->storage_disk);
+                $artifactExists = $disk->exists($run->storage_path);
+            } catch (\Throwable $e) {
+                $artifactExists = false;
+            }
+        }
+
         return [
             'id' => $run->id,
             'type' => $run->type,
@@ -123,7 +141,7 @@ class ReportRunController extends Controller
             'created_at' => $run->created_at?->toIso8601String(),
             'expires_at' => $run->expires_at?->toIso8601String(),
             'user' => $run->user ? ['id' => $run->user->id, 'name' => $run->user->name] : null,
-            'download_url' => $run->isReady()
+            'download_url' => ($run->isReady() && $artifactExists)
                 ? route('reports.runs.download', ['reportRun' => $run->id])
                 : null,
         ];

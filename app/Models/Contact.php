@@ -30,11 +30,16 @@ class Contact extends Model
         'address_wilaya',
         'email',
         'phone',
+        'default_payment_terms_days',
+        'default_payment_mode',
+        'default_expense_account_id',
+        'default_tax_rate_id',
         'is_active',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'default_payment_terms_days' => 'integer',
     ];
 
     protected static function boot(): void

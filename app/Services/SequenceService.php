@@ -17,12 +17,13 @@ final class SequenceService
     /**
      * @return array{sequence_id: string, number: string}
      */
-    public function nextInvoiceNumber(
+    public function nextNumber(
         string $companyId,
         string $documentType,
         string $issueDate,
+        ?string $overridePrefix = null,
     ): array {
-        return DB::transaction(function () use ($companyId, $documentType, $issueDate): array {
+        return DB::transaction(function () use ($companyId, $documentType, $issueDate, $overridePrefix): array {
             $year = (int) date('Y', strtotime($issueDate));
 
             $sequence = InvoiceSequence::query()
@@ -33,11 +34,12 @@ final class SequenceService
                 ->first();
 
             if (! $sequence) {
-                $prefix = match ($documentType) {
+                $prefix = $overridePrefix ?? match ($documentType) {
                     'invoice' => 'FAC',
                     'credit_note' => 'AV',
                     'quote' => 'DEV',
                     'delivery_note' => 'BL',
+                    'expense' => 'DEP',
                     default => 'DOC',
                 };
 
@@ -66,6 +68,17 @@ final class SequenceService
                 'number' => $number,
             ];
         });
+    }
+
+    /**
+     * @return array{sequence_id: string, number: string}
+     */
+    public function nextInvoiceNumber(
+        string $companyId,
+        string $documentType,
+        string $issueDate,
+    ): array {
+        return $this->nextNumber($companyId, $documentType, $issueDate);
     }
 }
 

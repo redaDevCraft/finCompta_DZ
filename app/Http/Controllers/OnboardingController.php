@@ -105,12 +105,23 @@ class OnboardingController extends Controller
 
         session(['current_company_id' => $company->id]);
 
-        // If user came here via "Start trial → pick plan" intent, send to billing next.
+        // After company creation, redirect to checkout when a plan is selected.
+        // OAuth "start trial" intent has priority over plain onboarding choice.
         $intent = session()->pull('oauth_intent');
+        $checkoutPlan = null;
+        $checkoutCycle = 'monthly';
+
         if (is_array($intent) && ($intent['intent'] ?? null) === 'subscribe' && ! empty($intent['plan'])) {
+            $checkoutPlan = (string) $intent['plan'];
+            $checkoutCycle = (string) ($intent['cycle'] ?? 'monthly');
+        } elseif ($plan) {
+            $checkoutPlan = (string) $plan->code;
+        }
+
+        if ($checkoutPlan !== null && $checkoutPlan !== '') {
             return redirect()->route('billing.checkout', [
-                'plan' => $intent['plan'],
-                'cycle' => $intent['cycle'] ?? 'monthly',
+                'plan' => $checkoutPlan,
+                'cycle' => $checkoutCycle,
             ]);
         }
 

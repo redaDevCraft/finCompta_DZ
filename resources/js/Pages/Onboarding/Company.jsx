@@ -15,7 +15,7 @@ export default function Company({ plans = [], trialDays = 3, presetPlan, presetC
         vat_registered: true,
         fiscal_year_end: 12,
         currency: 'DZD',
-        plan_code: presetPlan ?? (plans[0]?.code ?? ''),
+        plan_code: presetPlan ?? '',
     });
 
     const submit = (e) => {

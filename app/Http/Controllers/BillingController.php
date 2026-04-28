@@ -37,6 +37,11 @@ class BillingController extends Controller
             ->orderByDesc('created_at')
             ->limit(25)
             ->get();
+        $activePayment = Payment::query()
+            ->where('company_id', $company->id)
+            ->whereIn('status', ['pending', 'processing'])
+            ->latest()
+            ->first();
         $hasActiveBon = Payment::query()
             ->where('company_id', $company->id)
             ->where('gateway', 'bon_de_commande')
@@ -73,6 +78,7 @@ class BillingController extends Controller
             ] : null,
             'plans' => $plans,
             'payments' => $payments,
+            'active_payment_resume' => $this->buildActivePaymentResume($activePayment),
             'has_active_bon' => $hasActiveBon,
             'refund_requests' => $refundRequests,
             'chargily_ready' => app(ChargilyService::class)->isConfigured(),
@@ -606,5 +612,39 @@ class BillingController extends Controller
             ->when($subscriptionId, fn ($query) => $query->where('subscription_id', $subscriptionId))
             ->whereIn('status', ['pending', 'processing'])
             ->exists();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function buildActivePaymentResume(?Payment $payment): ?array
+    {
+        if (! $payment) {
+            return null;
+        }
+
+        if (! in_array($payment->status, ['pending', 'processing'], true)) {
+            return null;
+        }
+
+        if ($payment->gateway === 'bon_de_commande') {
+            return [
+                'id' => $payment->id,
+                'reference' => $payment->reference,
+                'gateway' => $payment->gateway,
+                'resume_url' => route('billing.bon.show', $payment),
+            ];
+        }
+
+        if ($payment->gateway === 'chargily' && ! empty($payment->checkout_url)) {
+            return [
+                'id' => $payment->id,
+                'reference' => $payment->reference,
+                'gateway' => $payment->gateway,
+                'resume_url' => route('billing.chargily.redirect', $payment),
+            ];
+        }
+
+        return null;
     }
 }

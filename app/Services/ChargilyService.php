@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\DTOs\ChargilyConfig;
 use App\Models\Payment;
 use Chargily\ChargilyPay\Auth\Credentials;
 use Chargily\ChargilyPay\ChargilyPay;
@@ -16,36 +17,23 @@ use Illuminate\Support\Facades\Log;
  */
 class ChargilyService
 {
+
+    public function __construct(
+        private readonly ChargilyPay $client,
+        private readonly ChargilyConfig $config
+    ){}
+    
     public function baseUrl(): string
     {
-        $mode = strtolower((string) config('services.chargily.mode', 'test'));
-
-        return $mode === 'live'
-            ? (string) config('services.chargily.base_url_live')
-            : (string) config('services.chargily.base_url_test');
+      return $this->config->baseUrl;
     }
 
     public function isConfigured(): bool
     {
-        $public = trim((string) config('services.chargily.api_key', ''));
-        $secret = trim((string) config('services.chargily.secret_key', ''));
-
-        return strlen($public) >= 16 && strlen($secret) >= 16;
+       return strlen($this->config->secretKey) >= 16 && strlen($this->config->apiKey) >= 16;
     }
 
-    protected function client(): ChargilyPay
-    {
-        $mode = strtolower((string) config('services.chargily.mode', 'test'));
-        if (! in_array($mode, ['test', 'live'], true)) {
-            $mode = 'test';
-        }
-
-        return new ChargilyPay(new Credentials([
-            'mode' => $mode,
-            'public' => trim((string) config('services.chargily.api_key')),
-            'secret' => trim((string) config('services.chargily.secret_key')),
-        ]));
-    }
+    
 
     /**
      * Create a hosted checkout session.
@@ -55,8 +43,12 @@ class ChargilyService
      *
      * @return array{ok: true, id: string, url: string, raw: mixed}|array{ok: false, error: string, detail?: string}
      */
-    public function createCheckout(Payment $payment, string $successUrl, string $failureUrl, string $webhookUrl): array
-    {
+    public function createCheckout(
+        Payment $payment,
+        string $successUrl,
+        string $failureUrl,
+        string $webhookUrl
+    ): array {
         if (! $this->isConfigured()) {
             Log::warning('Chargily not configured: set CHARGILY_API_KEY and CHARGILY_SECRET_KEY (min 16 chars each).');
 
@@ -72,7 +64,7 @@ class ChargilyService
             'failure_url' => $failureUrl,
             'webhook_endpoint' => $webhookUrl,
             'pass_fees_to_customer' => false,
-            'locale' => substr((string) config('services.chargily.locale', 'fr'), 0, 2),
+            'locale' => $this->config->locale,
             'description' => sprintf(
                 'FinCompta DZ — %s (%s)',
                 $payment->plan?->name ?? 'Abonnement',
@@ -93,7 +85,7 @@ class ChargilyService
         }
 
         try {
-            $checkout = $this->client()->checkouts()->create($payload);
+            $checkout = $this->client->checkouts()->create($payload);
         } catch (ValidationException $e) {
             Log::error('Chargily checkout validation failed', ['message' => $e->getMessage()]);
 
@@ -127,15 +119,17 @@ class ChargilyService
      * Chargily signs the raw body with HMAC-SHA256 using the API secret (SDK behaviour).
      * If CHARGILY_WEBHOOK_SECRET is set, it is used instead (e.g. dashboard-specific secret).
      */
+
     public function verifyWebhookSignature(string $rawBody, ?string $signatureHeader): bool
     {
-        $secret = trim((string) config('services.chargily.webhook_secret', ''));
-        // Some setups mistakenly put the webhook URL in CHARGILY_WEBHOOK_SECRET; that is not a signing key.
+        $secret = $this->config->webhookSecret;
+
         if ($secret !== '' && (str_starts_with($secret, 'http://') || str_starts_with($secret, 'https://'))) {
             $secret = '';
         }
+
         if ($secret === '') {
-            $secret = trim((string) config('services.chargily.secret_key', ''));
+            $secret = $this->config->secretKey;
         }
 
         if ($secret === '') {
@@ -150,4 +144,6 @@ class ChargilyService
 
         return hash_equals($expected, $signatureHeader);
     }
+
+    
 }

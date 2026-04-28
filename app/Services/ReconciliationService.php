@@ -98,7 +98,7 @@ class ReconciliationService
         DashboardCache::forget($tx->company_id);
     }
 
-    public function manualPost(BankTransaction $tx, string $accountId, string $description, User $user): void
+    public function manualPost(BankTransaction $tx, string $accountId, ?string $description, User $user): void
     {
         DB::transaction(function () use ($tx, $accountId, $description, $user) {
             $company = $tx->company()->firstOrFail();
@@ -111,13 +111,17 @@ class ReconciliationService
                 ->where('is_active', true)
                 ->firstOrFail();
 
+            $entryDescription = $this->buildManualEntryDescription($tx, $targetAccount, $description);
+            $counterpartLineDescription = $this->resolveCounterpartLineDescription($targetAccount, $tx);
+            $bankLineDescription = 'Mouvement bancaire';
+
             $entry = JournalEntry::create([
                 'company_id' => $company->id,
                 'period_id' => $period->id,
                 'entry_date' => $tx->transaction_date,
                 'journal_code' => 'BQ',
                 'reference' => null,
-                'description' => $description,
+                'description' => $entryDescription,
                 'status' => 'posted',
                 'source_type' => 'bank_txn',
                 'source_id' => $tx->id,
@@ -133,7 +137,7 @@ class ReconciliationService
                     'contact_id' => null,
                     'debit' => $amount,
                     'credit' => 0,
-                    'description' => $description,
+                    'description' => $bankLineDescription,
                     'sort_order' => 0,
                 ]);
 
@@ -142,7 +146,7 @@ class ReconciliationService
                     'contact_id' => null,
                     'debit' => 0,
                     'credit' => $amount,
-                    'description' => $description,
+                    'description' => $counterpartLineDescription,
                     'sort_order' => 1,
                 ]);
             } elseif ($tx->direction === 'debit') {
@@ -151,7 +155,7 @@ class ReconciliationService
                     'contact_id' => null,
                     'debit' => $amount,
                     'credit' => 0,
-                    'description' => $description,
+                    'description' => $counterpartLineDescription,
                     'sort_order' => 0,
                 ]);
 
@@ -160,7 +164,7 @@ class ReconciliationService
                     'contact_id' => null,
                     'debit' => 0,
                     'credit' => $amount,
-                    'description' => $description,
+                    'description' => $bankLineDescription,
                     'sort_order' => 1,
                 ]);
             } else {
@@ -210,5 +214,59 @@ class ReconciliationService
             ->where('is_active', true)
             ->orderBy('code')
             ->firstOrFail();
+    }
+
+    private function buildManualEntryDescription(BankTransaction $tx, Account $targetAccount, ?string $description): string
+    {
+        $provided = trim((string) ($description ?? ''));
+        if ($provided !== '') {
+            return $provided;
+        }
+
+        $direction = $this->resolvePartyDirection($targetAccount, $tx);
+        $counterparty = $this->extractCounterparty($tx);
+
+        return trim(sprintf('Règlement %s %s', $direction, $counterparty));
+    }
+
+    private function resolveCounterpartLineDescription(Account $targetAccount, BankTransaction $tx): string
+    {
+        return match ($this->resolvePartyDirection($targetAccount, $tx)) {
+            'client' => 'Règlement client',
+            'fournisseur' => 'Règlement fournisseur',
+            default => 'Mouvement bancaire',
+        };
+    }
+
+    private function resolvePartyDirection(Account $targetAccount, BankTransaction $tx): string
+    {
+        $code = (string) $targetAccount->code;
+        if (str_starts_with($code, '41')) {
+            return 'client';
+        }
+
+        if (str_starts_with($code, '40')) {
+            return 'fournisseur';
+        }
+
+        if ($tx->direction === 'credit') {
+            return 'client';
+        }
+
+        if ($tx->direction === 'debit') {
+            return 'fournisseur';
+        }
+
+        return 'banque';
+    }
+
+    private function extractCounterparty(BankTransaction $tx): string
+    {
+        $label = trim((string) $tx->label);
+        if ($label === '') {
+            return 'banque';
+        }
+
+        return mb_substr($label, 0, 80);
     }
 }

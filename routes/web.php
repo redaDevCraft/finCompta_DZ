@@ -15,6 +15,7 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\Controller;
 use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
@@ -36,7 +37,10 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportRunController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SupplierController;
+use FontLib\Table\Type\name;
 use Illuminate\Support\Facades\Route;
+
+ // Removed invalid class definition to fix syntax error
 
 /*
 |--------------------------------------------------------------------------
@@ -198,6 +202,8 @@ Route::middleware(['auth'])->group(function () {
 | App (auth + company + active subscription)
 |--------------------------------------------------------------------------
 */
+
+
 Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -214,7 +220,7 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
     Route::get('/contacts/{contact}', [ContactController::class, 'show'])->name('contacts.show');
 
     Route::post('/contacts', [ContactController::class, 'store'])
-        ->middleware('role:owner,accountant')
+        
         ->name('contacts.store');
 
     Route::match(['put', 'patch'], '/contacts/{contact}', [ContactController::class, 'update'])
@@ -613,6 +619,25 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->middleware('plan_feature:bank_accounts')
         ->middleware('role:owner')
         ->name('settings.bank-accounts.destroy');
+
+   
+     // now were trying the inctance taht verifies the exact same object
+
+    
+    
+    
+        
+      
+
+        
+
+    Route::get('/practise-container',function(){
+
+    
+
+
+    })->name('practise');
+
 });
 
 require __DIR__.'/auth.php';

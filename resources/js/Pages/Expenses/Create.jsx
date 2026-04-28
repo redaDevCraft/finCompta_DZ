@@ -1,5 +1,5 @@
 import { Head, Link, useForm } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import AsyncCombobox from '@/Components/UI/AsyncCombobox';
 
@@ -34,6 +34,63 @@ export default function Create({
         notes: '',
         source_document_id: prefill.source_document_id || '',
     });
+
+    // To avoid triggering effect on init when values are prefilled
+    const isFirstRun = useRef(true);
+
+    // Create a map of tax rate percent to taxRate object for de-duplication and fast lookup
+    const taxRateById = taxRates.reduce((carry, taxRate) => {
+        carry[taxRate.id] = Number(taxRate.rate_percent ?? 0);
+        return carry;
+    }, {});
+
+    // This effect will update VAT and TTC after both HT and tax_rate_id have been selected
+    useEffect(() => {
+        // Only auto-prefill when both HT and a VAT rate are chosen and not empty
+        const totalHt = Number(data.total_ht);
+        const rate = taxRateById[data.tax_rate_id];
+
+        // When mounting, don't make a change if VAT already present (preserve possible prefill)
+        if (isFirstRun.current) {
+            isFirstRun.current = false;
+            return;
+        }
+
+        // Only calculate VAT & TTC if both HT and a tax rate are selected, and the VAT and TTC haven't yet been prefilled, or the user changed one of the relevant fields
+        if (
+            data.total_ht !== '' &&
+            !Number.isNaN(totalHt) &&
+            data.tax_rate_id &&
+            !Number.isNaN(rate)
+        ) {
+            // Calculate VAT
+            const computedVat = ((totalHt * rate) / 100).toFixed(2);
+
+            // Only auto-set if user hasn't typed in a VAT value or it's wrong (stay in sync)
+            if (data.total_vat !== computedVat) {
+                setData('total_vat', computedVat);
+                // Do not immediately set total_ttc to allow effect to rerun after VAT is actually set
+                return;
+            }
+
+            // Calculate TTC
+            const computedTtc = (totalHt + Number(computedVat)).toFixed(2);
+            if (data.total_ttc !== computedTtc) {
+                setData('total_ttc', computedTtc);
+                return;
+            }
+        }
+        // If no VAT rate or HT is selected (resetting), clear vat and ttc fields
+        if (
+            (data.total_ht === '' || data.tax_rate_id === '' || Number.isNaN(totalHt) || Number.isNaN(rate)) &&
+            (data.total_vat !== '' || data.total_ttc !== '')
+        ) {
+            setData('total_vat', '');
+            setData('total_ttc', '');
+        }
+    // we only react to ht or vat rate change; total_vat and total_ttc will be autofilled and not be input by user (inputs are disabled)
+    // eslint-disable-next-line
+    }, [data.total_ht, data.tax_rate_id]);
 
     const submit = (e) => {
         e.preventDefault();
@@ -88,6 +145,18 @@ export default function Create({
                                     onChange={(id, option) => {
                                         setData('contact_id', id || '');
                                         setContactPrefill(option ?? null);
+
+                                        if (!data.description && option?.display_name) {
+                                            setData('description', `Fournisseur: ${option.display_name}`);
+                                        }
+
+                                        if (!data.expense_account_id && option?.default_expense_account_id) {
+                                            setData('expense_account_id', option.default_expense_account_id);
+                                        }
+
+                                        if (!data.tax_rate_id && option?.default_tax_rate_id) {
+                                            setData('tax_rate_id', option.default_tax_rate_id);
+                                        }
                                     }}
                                     getLabel={(c) => c.display_name}
                                     placeholder="Rechercher un fournisseur…"
@@ -118,7 +187,7 @@ export default function Create({
                                     type="text"
                                     value={data.reference}
                                     onChange={(e) => setData('reference', e.target.value)}
-                                    placeholder="Ex: FAC-2026-001"
+                                    placeholder="Laissez vide pour générer automatiquement"
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                                 />
                                 <FieldError message={errors.reference} />
@@ -171,12 +240,20 @@ export default function Create({
                                     onChange={(e) => setData('expense_account_id', e.target.value)}
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                                 >
-                                    <option value="">Sélectionner un compte</option>
-                                    {accountOptions.map((account) => (
-                                        <option key={account.id} value={account.id}>
-                                            {account.code} — {account.label}
-                                        </option>
-                                    ))}
+                                    {accountOptions.map((account) => {
+                                        const isDefault = account.code === "601";
+                                        return (
+                                            <option
+                                                key={account.id}
+                                                value={account.id}
+                                            >
+                                                {account.code} — {account.label}
+                                                {isDefault ? " (par défaut)" : ""}
+                                            </option>
+                                        );
+                                    })}
+                               
+
                                 </select>
                                 <FieldError message={errors.expense_account_id} />
                             </div>
@@ -187,11 +264,21 @@ export default function Create({
                                 </label>
                                 <select
                                     value={data.tax_rate_id}
-                                    onChange={(e) => setData('tax_rate_id', e.target.value)}
+                                    onChange={e => {
+                                        setData('tax_rate_id', e.target.value);
+                                    }}
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                                 >
                                     <option value="">Sélectionner un taux</option>
-                                    {taxRates.map((taxRate) => (
+                                    {[
+                                        ...Object.values(
+                                            taxRates.reduce((acc, taxRate) => {
+                                                const key = Number(taxRate.rate_percent);
+                                                if (!(key in acc)) acc[key] = taxRate;
+                                                return acc;
+                                            }, {})
+                                        ),
+                                    ].map((taxRate) => (
                                         <option key={taxRate.id} value={taxRate.id}>
                                             {taxRate.label}
                                         </option>
@@ -199,6 +286,7 @@ export default function Create({
                                 </select>
                                 <FieldError message={errors.tax_rate_id} />
                             </div>
+                 
 
                             <div>
                                 <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -208,7 +296,9 @@ export default function Create({
                                     type="number"
                                     step="0.01"
                                     value={data.total_ht}
-                                    onChange={(e) => setData('total_ht', e.target.value)}
+                                    onChange={e => {
+                                        setData('total_ht', e.target.value);
+                                    }}
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                                 />
                                 <FieldError message={errors.total_ht} />
@@ -222,8 +312,9 @@ export default function Create({
                                     type="number"
                                     step="0.01"
                                     value={data.total_vat}
-                                    onChange={(e) => setData('total_vat', e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                    disabled
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-slate-100 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-slate-400"
+                                    placeholder="Auto-calculé après sélection du taux de TVA et du Total HT"
                                 />
                                 <FieldError message={errors.total_vat} />
                             </div>
@@ -236,8 +327,9 @@ export default function Create({
                                     type="number"
                                     step="0.01"
                                     value={data.total_ttc}
-                                    onChange={(e) => setData('total_ttc', e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                    disabled
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-slate-100 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder:text-slate-400"
+                                    placeholder="Auto-calculé après HT & TVA"
                                 />
                                 <FieldError message={errors.total_ttc} />
                             </div>

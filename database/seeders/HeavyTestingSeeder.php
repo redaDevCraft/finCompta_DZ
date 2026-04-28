@@ -10,12 +10,14 @@ use App\Models\InvoicePayment;
 use App\Models\InvoiceSequence;
 use App\Models\Quote;
 use App\Models\TaxRate;
+use App\Models\User;
 use App\Services\InvoiceService;
 use App\Services\QuoteService;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 class HeavyTestingSeeder extends Seeder
 {
@@ -150,6 +152,13 @@ class HeavyTestingSeeder extends Seeder
                     $dueDate = (clone $issueDate)->addDays(random_int(10, 60));
                     $runningSeq++;
                     $invoiceNumber = sprintf('FAC-%s-%05d', $issueDate->format('Y'), $runningSeq);
+                    while (Invoice::query()
+                        ->where('company_id', $company->id)
+                        ->where('invoice_number', $invoiceNumber)
+                        ->exists()) {
+                        $runningSeq++;
+                        $invoiceNumber = sprintf('FAC-%s-%05d', $issueDate->format('Y'), $runningSeq);
+                    }
 
                     $invoice = Invoice::query()->create([
                         'company_id' => $company->id,
@@ -285,6 +294,28 @@ class HeavyTestingSeeder extends Seeder
                     ]);
                 }
 
+                $creditNoteCount = max(0, (int) env('HEAVY_SEED_CREDIT_NOTES', 40));
+                if ($creditNoteCount > 0) {
+                    $companyModel = Company::query()->findOrFail($company->id);
+                    $creditUser = $createdBy ? User::query()->find($createdBy) : User::query()->first();
+                    if ($creditUser) {
+                        $originals = Invoice::query()
+                            ->where('company_id', $company->id)
+                            ->where('document_type', 'invoice')
+                            ->whereIn('status', ['issued', 'partially_paid', 'paid'])
+                            ->inRandomOrder()
+                            ->limit($creditNoteCount)
+                            ->get();
+                        foreach ($originals as $original) {
+                            try {
+                                $invoiceService->createCreditNote($original, $companyModel, $creditUser);
+                            } catch (Throwable) {
+                                // ignore compliance / edge cases for random heavy data
+                            }
+                        }
+                    }
+                }
+
                 $sequence->update([
                     'last_number' => $runningSeq,
                     'total_issued' => max((int) $sequence->total_issued, $runningSeq),
@@ -320,4 +351,3 @@ class HeavyTestingSeeder extends Seeder
         return max(1, (int) $value);
     }
 }
-

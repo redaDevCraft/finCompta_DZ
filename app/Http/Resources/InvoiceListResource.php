@@ -48,6 +48,7 @@ final class InvoiceListResource extends JsonResource
             'document_type' => $invoice->document_type,
             'status' => $invoice->status,
             'issue_date' => optional($invoice->issue_date)->toDateString(),
+            'created_at' => optional($invoice->created_at)->toDateTimeString(),
             'due_date' => optional($invoice->due_date)->toDateString(),
             'subtotal_ht' => (float) $invoice->subtotal_ht,
             'total_ttc' => (float) $invoice->total_ttc,

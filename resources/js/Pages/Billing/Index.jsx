@@ -31,7 +31,15 @@ const APPROVAL_BADGE = {
     rejected: { label: 'Rejeté', cls: 'bg-rose-100 text-rose-700' },
 };
 
-export default function BillingIndex({ subscription, plans = [], payments = [], refund_requests = [], has_active_bon = false, chargily_ready }) {
+export default function BillingIndex({
+    subscription,
+    plans = [],
+    payments = [],
+    refund_requests = [],
+    has_active_bon = false,
+    chargily_ready,
+    active_payment_resume = null,
+}) {
     const refundForm = useForm({
         payment_id: '',
         reason: '',
@@ -53,6 +61,20 @@ export default function BillingIndex({ subscription, plans = [], payments = [], 
                 {has_active_bon && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                         Un bon de commande est déjà en cours de traitement pour votre abonnement.
+                    </div>
+                )}
+
+                {active_payment_resume?.resume_url && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                        <span>
+                            Un paiement est déjà en cours ({active_payment_resume.reference}). Finalisez-le pour activer votre abonnement.
+                        </span>
+                        <a
+                            href={active_payment_resume.resume_url}
+                            className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                        >
+                            Finaliser le paiement
+                        </a>
                     </div>
                 )}
 

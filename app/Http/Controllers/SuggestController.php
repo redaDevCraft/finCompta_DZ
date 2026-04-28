@@ -42,7 +42,16 @@ class SuggestController extends Controller
         }
 
         $query = Contact::query()
-            ->select(['id', 'display_name', 'type', 'email'])
+            ->select([
+                'id',
+                'display_name',
+                'type',
+                'email',
+                'default_payment_terms_days',
+                'default_payment_mode',
+                'default_expense_account_id',
+                'default_tax_rate_id',
+            ])
             ->where(function ($builder) use ($q) {
                 // Anchored prefix match first (hits the index), then a
                 // fallback containing-match for the tail of the query.
@@ -68,6 +77,10 @@ class SuggestController extends Controller
                 'display_name' => $c->display_name,
                 'type' => $c->type,
                 'email' => $c->email,
+                'default_payment_terms_days' => $c->default_payment_terms_days,
+                'default_payment_mode' => $c->default_payment_mode,
+                'default_expense_account_id' => $c->default_expense_account_id,
+                'default_tax_rate_id' => $c->default_tax_rate_id,
             ])->values(),
         ]);
     }

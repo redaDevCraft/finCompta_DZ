@@ -30,7 +30,7 @@ class ContactController extends Controller
             ->paginate(20)
             ->withQueryString();
 
-        return Inertia::render('Contacts/Index', [
+        return Inertia::render('Contacts/index', [
             'contacts' => $contacts,
             'filters' => [
                 'type' => $type ?: null,
@@ -182,6 +182,10 @@ class ContactController extends Controller
             'rc' => ['nullable', 'regex:/^\d{2}\/\d{2}-\d{7}\sB\s\d{2}$/'],
             'email' => ['nullable', 'email', 'max:255'],
             'phone' => ['nullable', 'regex:/^(05|06|07)\d{8}$/'],
+            'default_payment_terms_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'default_payment_mode' => ['nullable', 'in:Virement bancaire,Chèque,Espèces,Effet de commerce,Carte bancaire,Chargily (E-paiement),Slickpay,Autre'],
+            'default_expense_account_id' => ['nullable', 'uuid', 'exists:accounts,id'],
+            'default_tax_rate_id' => ['nullable', 'uuid', 'exists:tax_rates,id'],
             'address_line1' => ['nullable', 'string', 'max:500'],
             'address_wilaya' => ['nullable', 'string', 'max:100'],
         ];

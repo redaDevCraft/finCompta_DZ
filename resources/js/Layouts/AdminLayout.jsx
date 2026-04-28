@@ -140,7 +140,7 @@ export default function AdminLayout({ header, children }) {
                     </div>
                 </header>
 
-                <main className="px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
+                <main className="app-content px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
             </div>
         </div>
     );

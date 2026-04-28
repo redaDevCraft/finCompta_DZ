@@ -19,6 +19,8 @@ import {
     LogOut,
     Menu,
     NotebookPen,
+    PanelLeftClose,
+    PanelLeftOpen,
     Search,
     Receipt,
     Scale,
@@ -31,6 +33,14 @@ import {
     Users,
     X,
 } from 'lucide-react';
+
+const DESKTOP_BREAKPOINT = 1024;
+const SIDEBAR_DEFAULT_WIDTH = 288;
+const SIDEBAR_MIN_WIDTH = 240;
+const SIDEBAR_MAX_WIDTH = 420;
+const SIDEBAR_COLLAPSED_WIDTH = 76;
+const SIDEBAR_WIDTH_STORAGE_KEY = 'authenticated-layout:sidebar-width';
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'authenticated-layout:sidebar-collapsed';
 
 const baseNavGroups = [
     {
@@ -113,8 +123,9 @@ function buildNavGroups(roles) {
 function SidebarLink({ href, label, icon: Icon, active, onClick, linkRef, cta = false, nested = false, isSubheading = false }) {
     if (isSubheading) {
         return (
-            <div className="mt-2 px-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                {label}
+            <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-[13px] font-bold tracking-wide text-slate-700">
+                {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-slate-500" />}
+                <span className="truncate">{label}</span>
             </div>
         );
     }
@@ -126,14 +137,15 @@ function SidebarLink({ href, label, icon: Icon, active, onClick, linkRef, cta = 
             onClick={onClick}
             className={[
                 'flex items-center gap-3 rounded-r-lg px-4 py-2.5 text-[14px] font-medium transition-all duration-200',
-                nested ? 'pl-9 text-[13px]' : '',
+                nested ? 'ml-3 border-l border-slate-200 pl-4 text-[11px] text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900' : '',
                 cta ? 'border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : '',
                 active
-                    ? 'border-l-4 border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
+                    ? nested
+                        ? 'border-l border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm'
+                        : 'border-l-4 border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
                     : 'border-l-4 border-transparent text-gray-700 hover:bg-gray-50 hover:text-gray-900 hover:translate-x-0.5',
             ].join(' ')}
         >
-            <Icon className="h-4 w-4 shrink-0" />
             <span className="truncate">{label}</span>
         </Link>
     );
@@ -164,6 +176,10 @@ function isActiveLink(url, href) {
 export default function AuthenticatedLayout({ header, children }) {
     const { url, props } = usePage();
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [collapsedGroupIndex, setCollapsedGroupIndex] = useState(null);
 
     const company = props.currentCompany ?? null;
     const companySwitcher = props.company_switcher ?? [];
@@ -197,11 +213,118 @@ export default function AuthenticatedLayout({ header, children }) {
     const activeLinkRef = useRef(null);
     const lastAutoScrolledUrlRef = useRef(null);
     const quickSearchAbortRef = useRef(null);
+    const sidebarContainerRef = useRef(null);
+    const resizeStartXRef = useRef(0);
+    const resizeStartWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
 
     useEffect(() => {
         if (!trialBannerStorageKey) return;
         setTrialBannerDismissed(window.sessionStorage.getItem(trialBannerStorageKey) === '1');
     }, [trialBannerStorageKey]);
+
+    useEffect(() => {
+        const savedWidth = Number.parseInt(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10);
+        if (!Number.isFinite(savedWidth)) return;
+        setSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, savedWidth)));
+    }, []);
+
+    useEffect(() => {
+        setIsSidebarCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1');
+    }, []);
+
+    useEffect(() => {
+        window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    }, [sidebarWidth]);
+
+    useEffect(() => {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, isSidebarCollapsed ? '1' : '0');
+        if (!isSidebarCollapsed) return;
+
+        setContextMenuOpen(false);
+        setCompanyMenuOpen(false);
+        setFiscalMenuOpen(false);
+        setAccountMenuOpen(false);
+    }, [isSidebarCollapsed]);
+
+    useEffect(() => {
+        if (!isSidebarCollapsed) {
+            setCollapsedGroupIndex(null);
+        }
+    }, [isSidebarCollapsed]);
+
+    useEffect(() => {
+        setCollapsedGroupIndex(null);
+    }, [url]);
+
+    useEffect(() => {
+        if (!isSidebarCollapsed) return undefined;
+        if (!collapsedGroupIndex && !contextMenuOpen && !accountMenuOpen) return undefined;
+
+        const handleClickOutside = (event) => {
+            const sidebarEl = sidebarContainerRef.current;
+            if (!sidebarEl) return;
+            if (sidebarEl.contains(event.target)) return;
+
+            setCollapsedGroupIndex(null);
+            setContextMenuOpen(false);
+            setCompanyMenuOpen(false);
+            setFiscalMenuOpen(false);
+            setAccountMenuOpen(false);
+        };
+
+        window.addEventListener('mousedown', handleClickOutside);
+        return () => window.removeEventListener('mousedown', handleClickOutside);
+    }, [isSidebarCollapsed, collapsedGroupIndex, contextMenuOpen, accountMenuOpen]);
+
+    useEffect(() => {
+        if (!isResizingSidebar) return undefined;
+
+        const handleMouseMove = (event) => {
+            const deltaX = event.clientX - resizeStartXRef.current;
+            const nextWidth = resizeStartWidthRef.current + deltaX;
+            setSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, nextWidth)));
+        };
+
+        const stopResizing = () => {
+            setIsResizingSidebar(false);
+            document.body.classList.remove('cursor-col-resize', 'select-none');
+        };
+
+        document.body.classList.add('cursor-col-resize', 'select-none');
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', stopResizing);
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', stopResizing);
+            document.body.classList.remove('cursor-col-resize', 'select-none');
+        };
+    }, [isResizingSidebar]);
+
+    const handleSidebarResizeStart = (event) => {
+        if (window.innerWidth < DESKTOP_BREAKPOINT || isSidebarCollapsed) return;
+        event.preventDefault();
+        resizeStartXRef.current = event.clientX;
+        resizeStartWidthRef.current = sidebarWidth;
+        setIsResizingSidebar(true);
+    };
+
+    const desktopSidebarWidth = isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth;
+    const collapsedParentGroups = useMemo(
+        () => navGroups
+            .map((group, idx) => {
+                const children = group.items.filter((item) => !item.isSubheading);
+                return {
+                    group,
+                    idx,
+                    children,
+                    icon: children[0]?.icon ?? Layers,
+                };
+            })
+            .filter(({ group }) => Boolean(group.label)),
+        [navGroups]
+    );
+    const activeCollapsedGroup = collapsedParentGroups.find(({ idx }) => idx === collapsedGroupIndex) ?? null;
 
     useEffect(() => {
         if (!shouldShowUpgradeNudge) {
@@ -306,13 +429,299 @@ export default function AuthenticatedLayout({ header, children }) {
     };
 
     const sidebar = (
-        <div className="flex h-full flex-col bg-white">
-            <div className="shrink-0 border-b border-gray-200 px-5 py-4">
-                <div className="text-base font-bold text-gray-900">FinCompta DZ</div>
-                <div className="mt-1 text-[11px] text-gray-500">Comptabilité PME Algérie</div>
-            </div>
+        <div ref={sidebarContainerRef} className="relative flex h-full flex-col bg-white">
+            {isSidebarCollapsed ? (
+                <>
+                    <div className="flex shrink-0 items-center justify-center border-b border-gray-200 px-2 py-4">
+                        <button
+                            type="button"
+                            onClick={() => setIsSidebarCollapsed(false)}
+                            className="rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            title="Ouvrir le menu latéral"
+                            aria-label="Ouvrir le menu latéral"
+                        >
+                            <PanelLeftOpen className="h-4 w-4" />
+                        </button>
+                    </div>
+                    <div className="relative shrink-0 border-b border-gray-200 bg-slate-50 px-2 py-2">
+                        {contextMenuOpen && (
+                            <div className="absolute left-full top-0 z-[85] ml-2.5 w-72 rounded-md border border-slate-200 bg-white p-3.5 shadow-lg">
+                                <div className="space-y-3">
+                                    <div className="relative">
+                                        <div className="mb-1 flex items-center justify-between">
+                                            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                Société
+                                            </label>
+                                            <Link
+                                                href="/company/select"
+                                                className="text-[12px] font-medium text-slate-600 hover:text-slate-900"
+                                                onClick={() => setContextMenuOpen(false)}
+                                            >
+                                                Changer
+                                            </Link>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setCompanyMenuOpen((open) => !open);
+                                                setFiscalMenuOpen(false);
+                                            }}
+                                            className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[13px] font-semibold uppercase tracking-wide text-slate-700 hover:bg-slate-100"
+                                        >
+                                            <span className="truncate">{company?.raison_sociale ?? 'Aucune société'}</span>
+                                            <ChevronDown className={['h-3.5 w-3.5 shrink-0 transition-transform', companyMenuOpen ? 'rotate-180' : ''].join(' ')} />
+                                        </button>
+                                        {companyMenuOpen && (
+                                            <div className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                                                {companySwitcher.length > 0 ? (
+                                                    companySwitcher.map((item) => (
+                                                        <button
+                                                            key={item.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleCompanySwitch(String(item.id));
+                                                                setCompanyMenuOpen(false);
+                                                                setContextMenuOpen(false);
+                                                            }}
+                                                            className={[
+                                                                'block w-full px-2.5 py-2 text-left text-[13px] hover:bg-slate-100',
+                                                                String(company?.id ?? '') === String(item.id)
+                                                                    ? 'bg-indigo-50 font-semibold text-indigo-700'
+                                                                    : 'text-slate-700',
+                                                            ].join(' ')}
+                                                        >
+                                                            {item.raison_sociale}
+                                                        </button>
+                                                    ))
+                                                ) : (
+                                                    <div className="px-2.5 py-2 text-[13px] text-slate-500">Aucune société</div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
 
-            <div className="relative shrink-0 border-b border-gray-200 bg-slate-50 px-3 py-3">
+                                    <div className="relative">
+                                        <div className="mb-1 flex items-center justify-between">
+                                            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                                Exercice
+                                            </label>
+                                            <Link
+                                                href="/settings/periods"
+                                                className="text-[12px] font-medium text-slate-600 hover:text-slate-900"
+                                                onClick={() => setContextMenuOpen(false)}
+                                            >
+                                                Gérer
+                                            </Link>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setFiscalMenuOpen((open) => !open);
+                                                setCompanyMenuOpen(false);
+                                            }}
+                                            className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-100"
+                                        >
+                                            <span>{selectedFiscalYear}</span>
+                                            <ChevronDown className={['h-3.5 w-3.5 shrink-0 transition-transform', fiscalMenuOpen ? 'rotate-180' : ''].join(' ')} />
+                                        </button>
+                                        {fiscalMenuOpen && (
+                                            <div className="absolute left-0 right-0 z-20 mt-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                                                {fiscalYearOptions.map((year) => (
+                                                    <button
+                                                        key={year}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedFiscalYear(year);
+                                                            setFiscalMenuOpen(false);
+                                                            setContextMenuOpen(false);
+                                                        }}
+                                                        className={[
+                                                            'block w-full px-2.5 py-2 text-left text-[13px] hover:bg-slate-100',
+                                                            selectedFiscalYear === year
+                                                                ? 'bg-indigo-50 font-semibold text-indigo-700'
+                                                                : 'text-slate-700',
+                                                        ].join(' ')}
+                                                    >
+                                                        {year}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setContextMenuOpen((open) => !open);
+                                setCompanyMenuOpen(false);
+                                setFiscalMenuOpen(false);
+                                setAccountMenuOpen(false);
+                                setCollapsedGroupIndex(null);
+                            }}
+                            className={[
+                                'flex w-full items-center justify-center rounded-md border bg-white p-2 text-slate-700 transition',
+                                contextMenuOpen ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-100',
+                            ].join(' ')}
+                            title={`${company?.raison_sociale ?? 'Société'} · ${selectedFiscalYear}`}
+                            aria-label="Contexte société et exercice"
+                        >
+                            <Landmark className="h-4 w-4" />
+                        </button>
+                    </div>
+                    <nav className="relative z-20 flex-1 overflow-y-auto px-2 py-4">
+                        <div className="space-y-2">
+                            {collapsedParentGroups.map(({ group, idx, children, icon: GroupIcon }) => {
+                                const groupActive = children.some((item) => isActiveLink(url, item.href));
+                                const cardOpen = collapsedGroupIndex === idx;
+                                return (
+                                    <div key={`collapsed-group-${group.label}`} className="relative">
+                                        <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCollapsedGroupIndex((current) => (current === idx ? null : idx));
+                                            setContextMenuOpen(false);
+                                            setCompanyMenuOpen(false);
+                                            setFiscalMenuOpen(false);
+                                            setAccountMenuOpen(false);
+                                        }}
+                                        className={[
+                                            'flex w-full items-center justify-center rounded-lg border p-2 transition',
+                                            groupActive || cardOpen
+                                                ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                                                : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900',
+                                        ].join(' ')}
+                                        title={group.label}
+                                    >
+                                        <GroupIcon className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </nav>
+                    {activeCollapsedGroup && (
+                        <div className="pointer-events-auto absolute bottom-0 left-full top-0 z-[80] ml-2.5 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                            <div className="shrink-0 border-b border-gray-200 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                {activeCollapsedGroup.group.label}
+                            </div>
+                            <div className="flex h-[calc(100%-92px)] flex-col">
+                                <div className="flex-1 overflow-y-auto px-2 py-2">
+                                    <div className="space-y-1">
+                                        {activeCollapsedGroup.group.items
+                                            .filter((item) => !item.isSubheading)
+                                            .map((item) => {
+                                                const feature = featureByHref[item.href] ?? null;
+                                                const allowed = canUseFeature(feature);
+                                                const href = allowed ? item.href : '/billing/checkout';
+                                                const active = isActiveLink(url, item.href);
+                                                return (
+                                                    <Link
+                                                        key={`collapsed-child-${item.href}`}
+                                                        href={href}
+                                                        onClick={() => {
+                                                            setMobileOpen(false);
+                                                            setCollapsedGroupIndex(null);
+                                                        }}
+                                                        className={[
+                                                            'flex items-center justify-between rounded-md px-2.5 py-2 text-sm transition',
+                                                            active
+                                                                ? 'bg-indigo-50 font-medium text-indigo-700'
+                                                                : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900',
+                                                        ].join(' ')}
+                                                    >
+                                                        <span className="truncate">{item.label}</span>
+                                                        {!allowed && <Crown className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+                                                    </Link>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                                <div className="shrink-0 border-t border-gray-200 bg-gray-50 px-2 py-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCollapsedGroupIndex(null)}
+                                        className="flex w-full items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                    >
+                                        Fermer
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <div className="relative z-20 shrink-0 border-t border-gray-200 bg-gray-50 px-2 py-3">
+                        {accountMenuOpen && (
+                            <div className="absolute bottom-0 left-full z-[85] ml-2.5 w-72 rounded-md border border-slate-200 bg-white p-3.5 shadow-lg">
+                                <div className="text-[13px] font-semibold text-gray-900">{user?.name ?? 'Utilisateur'}</div>
+                                {company && (
+                                    <div className="mt-0.5 truncate text-[12px] text-slate-500">{company.raison_sociale}</div>
+                                )}
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                        {subscription?.plan?.name ?? 'Plan non actif'}
+                                    </span>
+                                    <Link
+                                        href="/billing"
+                                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                        onClick={() => setAccountMenuOpen(false)}
+                                    >
+                                        <CreditCard className="h-3.5 w-3.5" />
+                                        Billing
+                                    </Link>
+                                </div>
+                                <Link
+                                    href={route('logout')}
+                                    method="post"
+                                    as="button"
+                                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-100"
+                                >
+                                    <LogOut className="h-3.5 w-3.5" />
+                                    Logout
+                                </Link>
+                            </div>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setAccountMenuOpen((open) => !open);
+                                setCollapsedGroupIndex(null);
+                                setContextMenuOpen(false);
+                                setCompanyMenuOpen(false);
+                                setFiscalMenuOpen(false);
+                            }}
+                            className={[
+                                'flex w-full items-center justify-center rounded-md border bg-white p-2 text-slate-700 transition',
+                                accountMenuOpen ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-100',
+                            ].join(' ')}
+                            title={user?.name ?? 'Utilisateur'}
+                            aria-label="Menu utilisateur"
+                        >
+                            <User className="h-4 w-4" />
+                        </button>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div className="shrink-0 border-b border-gray-200 px-5 py-4">
+                        <div className="flex items-center justify-between gap-2">
+                            <div>
+                                <div className="text-base font-bold text-gray-900">FinCompta DZ</div>
+                                <div className="mt-1 text-[11px] text-gray-500">Comptabilité PME Algérie</div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsSidebarCollapsed(true)}
+                                className="hidden rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 lg:inline-flex"
+                                title="Réduire le menu latéral"
+                                aria-label="Réduire le menu latéral"
+                            >
+                                <PanelLeftClose className="h-4 w-4" />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="relative shrink-0 border-b border-gray-200 bg-slate-50 px-3 py-3">
                 {contextMenuOpen && (
                     <div className="absolute left-3 right-3 top-[calc(100%+8px)] z-20 rounded-md border border-slate-200 bg-white p-3.5 shadow-lg">
                         <div className="space-y-3">
@@ -434,24 +843,32 @@ export default function AuthenticatedLayout({ header, children }) {
                     </span>
                     <ChevronDown className={['h-3.5 w-3.5 transition-transform', contextMenuOpen ? 'rotate-180' : ''].join(' ')} />
                 </button>
-            </div>
+                    </div>
 
-            <nav ref={navScrollRef} className="flex-1 overflow-y-auto px-2 py-4">
+                    <nav ref={navScrollRef} className="flex-1 overflow-y-auto px-2 py-4">
                 {navGroups.map((group, idx) => (
                     <div key={idx} className={idx > 0 ? 'mt-5' : ''}>
                         {group.label && (
                             <button
                                 type="button"
                                 onClick={() => toggleGroup(idx)}
-                                className="flex w-full items-center justify-between px-4 pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-500 transition-colors hover:text-gray-700"
+                                className="flex w-full items-center justify-between px-3 pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-500 transition-colors hover:text-gray-700"
                             >
-                                <span>{group.label}</span>
-                                <ChevronDown
-                                    className={[
-                                        'h-3.5 w-3.5 transition-transform duration-200',
-                                        openGroups[idx] ? 'rotate-180' : '',
-                                    ].join(' ')}
-                                />
+                                <span className="flex min-w-0 items-center gap-2">
+                                    {(() => {
+                                        const GroupIcon = group.items.find((item) => !item.isSubheading)?.icon ?? Layers;
+                                        return <GroupIcon className="h-3.5 w-3.5 shrink-0 text-slate-500" />;
+                                    })()}
+                                    <span className="truncate">{group.label}</span>
+                                </span>
+                                <span className="shrink-0">
+                                    <ChevronDown
+                                        className={[
+                                            'h-3.5 w-3.5 transition-transform duration-200',
+                                            openGroups[idx] ? 'rotate-180' : '',
+                                        ].join(' ')}
+                                    />
+                                </span>
                             </button>
                         )}
                         <div
@@ -473,6 +890,8 @@ export default function AuthenticatedLayout({ header, children }) {
                                                 href={item.href}
                                                 label={item.label}
                                                 icon={item.icon}
+                                                nested={item.nested}
+                                                isSubheading={item.isSubheading}
                                                 active={isActive}
                                                 linkRef={isActive ? activeLinkRef : null}
                                                 onClick={() => setMobileOpen(false)}
@@ -485,11 +904,13 @@ export default function AuthenticatedLayout({ header, children }) {
                                             key={item.href}
                                             href="/billing/checkout"
                                             onClick={() => setMobileOpen(false)}
-                                            className="flex items-center justify-between gap-3 rounded-r-lg border-l-4 border-transparent px-4 py-2.5 text-[14px] font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                            className={[
+                                                'flex items-center justify-between gap-3 rounded-r-lg px-4 py-2.5 text-[14px] font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600',
+                                                item.nested ? 'ml-3 border-l border-slate-200 pl-4 text-[11px]' : 'border-l-4 border-transparent',
+                                            ].join(' ')}
                                             title="Fonctionnalité verrouillée — passez au plan supérieur"
                                         >
                                             <span className="flex min-w-0 items-center gap-3">
-                                                <item.icon className="h-4 w-4 shrink-0" />
                                                 <span className="truncate">{item.label}</span>
                                             </span>
                                             <Crown className="h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -500,9 +921,9 @@ export default function AuthenticatedLayout({ header, children }) {
                         </div>
                     </div>
                 ))}
-            </nav>
+                    </nav>
 
-            <div className="relative shrink-0 border-t border-gray-200 bg-gray-50 px-3 py-3">
+                    <div className="relative shrink-0 border-t border-gray-200 bg-gray-50 px-3 py-3">
                 {accountMenuOpen && (
                     <div className="absolute bottom-full left-3 right-3 z-10 mb-2 rounded-md border border-slate-200 bg-white p-3.5 shadow-lg">
                         <div className="text-[13px] font-semibold text-gray-900">{user?.name ?? 'Utilisateur'}</div>
@@ -541,9 +962,9 @@ export default function AuthenticatedLayout({ header, children }) {
                     <span className="truncate">{user?.name ?? 'Utilisateur'}</span>
                     <ChevronDown className={['h-3.5 w-3.5 transition-transform', accountMenuOpen ? 'rotate-180' : ''].join(' ')} />
                 </button>
-            </div>
-            {shouldShowUpgradeNudge && !upgradeBannerDismissed && (
-                <div className="shrink-0 border-t border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3">
+                    </div>
+                    {shouldShowUpgradeNudge && !upgradeBannerDismissed && (
+                        <div className="shrink-0 border-t border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3">
                     <div className="flex items-start justify-between gap-2">
                         <div className="text-xs font-semibold text-amber-900">Passez au niveau supérieur</div>
                         <button
@@ -565,7 +986,9 @@ export default function AuthenticatedLayout({ header, children }) {
                         <Crown className="h-3 w-3" />
                         Upgrade
                     </Link>
-                </div>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
@@ -618,7 +1041,7 @@ export default function AuthenticatedLayout({ header, children }) {
     }, [quickQuery]);
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 lg:[--sidebar-width:288px]" style={{ '--sidebar-width': `${desktopSidebarWidth}px` }}>
             {mobileOpen && (
                 <div
                     className="fixed inset-0 z-40 bg-black/40 lg:hidden"
@@ -628,7 +1051,7 @@ export default function AuthenticatedLayout({ header, children }) {
 
             <aside
                 className={[
-                    'fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col border-r border-gray-200 bg-white transition-transform duration-200 ease-in-out lg:translate-x-0',
+                    'fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col border-r border-gray-200 bg-white transition-transform duration-200 ease-in-out lg:overflow-visible lg:[width:var(--sidebar-width)] lg:translate-x-0',
                     mobileOpen ? 'translate-x-0' : '-translate-x-full',
                 ].join(' ')}
             >
@@ -644,9 +1067,24 @@ export default function AuthenticatedLayout({ header, children }) {
                 </div>
 
                 <div className="min-h-0 flex-1">{sidebar}</div>
+                {!isSidebarCollapsed && (
+                    <button
+                        type="button"
+                        className={[
+                            'absolute inset-y-0 right-0 hidden w-1.5 -translate-x-1/2 cursor-col-resize bg-transparent transition-colors lg:block',
+                            isResizingSidebar ? 'bg-indigo-400/70' : 'hover:bg-slate-300/80',
+                        ].join(' ')}
+                        onMouseDown={handleSidebarResizeStart}
+                        aria-label="Resize sidebar"
+                        aria-orientation="vertical"
+                        aria-valuemin={SIDEBAR_MIN_WIDTH}
+                        aria-valuemax={SIDEBAR_MAX_WIDTH}
+                        aria-valuenow={Math.round(sidebarWidth)}
+                    />
+                )}
             </aside>
 
-            <div className="lg:pl-72">
+            <div className="lg:pl-[var(--sidebar-width)]">
                 <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 backdrop-blur">
                     <div className="flex items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
                         <div className="flex items-center gap-3">
@@ -828,7 +1266,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
                 )}
 
-                <main className="px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
+                <main className="app-content px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
             </div>
             <StickyBackButton />
         </div>

@@ -74,6 +74,7 @@ class DatabaseSeeder extends Seeder
 
             if ((bool) env('HEAVY_SEED', false)) {
                 $this->call(HeavyTestingSeeder::class);
+                $this->call(HeavyTableCoverageSeeder::class);
             }
         }
     }

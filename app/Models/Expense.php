@@ -23,6 +23,7 @@ class Expense extends Model
         'company_id',
         'contact_id',
         'supplier_snapshot',
+        'sequence_id',
         'reference',
         'expense_date',
         'due_date',

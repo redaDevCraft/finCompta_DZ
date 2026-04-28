@@ -21,7 +21,7 @@ export function RevenueChart({ invoiced, collected, expenses }) {
     return (
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="mb-4 text-sm font-medium text-slate-500">
-                Revenue & Collections — Last 12 months
+                Facturation et encaissements - 12 derniers mois
             </h3>
             <ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
@@ -40,9 +40,9 @@ export function RevenueChart({ invoiced, collected, expenses }) {
                     <YAxis tickFormatter={(v) => formatCurrency(v, true)} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(value) => formatCurrency(value)} />
                     <Legend />
-                    <Area type="monotone" dataKey="invoiced" stroke="#4f46e5" fill="url(#invoiced)" name="Invoiced" />
-                    <Area type="monotone" dataKey="collected" stroke="#16a34a" fill="url(#collected)" name="Collected" />
-                    <Area type="monotone" dataKey="expenses" stroke="#d97706" fill="none" strokeDasharray="4 2" name="Expenses" />
+                    <Area type="monotone" dataKey="invoiced" stroke="#4f46e5" fill="url(#invoiced)" name="Facture" />
+                    <Area type="monotone" dataKey="collected" stroke="#16a34a" fill="url(#collected)" name="Encaisse" />
+                    <Area type="monotone" dataKey="expenses" stroke="#d97706" fill="none" strokeDasharray="4 2" name="Depenses" />
                 </AreaChart>
             </ResponsiveContainer>
         </div>

@@ -14,6 +14,14 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
  *     rows (ready / failed) are never polled again.
  *   - Polling stops as soon as there's nothing non-terminal left. This
  *     page is safe to leave open.
+ *
+ * NOTE for maintainers:
+ *   If a "ready" row doesn't show a download link, it means either:
+ *     1) The backend did not set a download_url when status === 'ready' (a bug in ReportRunController or job);
+ *     2) The artifact failed to be generated/attached, or the file was deleted or didn't upload.
+ *   In this table, the logic is purely:
+ *      if (run.status === 'ready' && run.download_url) => show download link
+ *      if (run.status === 'ready' && !run.download_url) => show "—"
  */
 
 const POLL_INTERVAL_MS = 3000;
@@ -168,6 +176,15 @@ export default function Exports({ runs = [] }) {
                                     const status = STATUS_META[run.status] ?? STATUS_META.queued;
                                     const Icon = status.Icon;
 
+                                    /**
+                                     * Download logic:
+                                     * Show download link ONLY if the row is ready AND has a download_url.
+                                     * This extra check avoids edge cases where backend didn't attach the artifact.
+                                     */
+                                    const canDownload =
+                                        run.status === 'ready' &&
+                                        !!run.download_url;
+
                                     return (
                                         <tr key={run.id} className="align-top">
                                             <td className="px-4 py-3 font-medium text-slate-900">
@@ -201,7 +218,7 @@ export default function Exports({ runs = [] }) {
                                                 {formatDateTime(run.completed_at)}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                {run.download_url ? (
+                                                {canDownload ? (
                                                     <a
                                                         href={run.download_url}
                                                         className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
@@ -210,7 +227,11 @@ export default function Exports({ runs = [] }) {
                                                         Télécharger
                                                     </a>
                                                 ) : (
-                                                    <span className="text-xs text-slate-400">—</span>
+                                                    <span className="text-xs text-slate-400">
+                                                        {run.status === 'ready'
+                                                            ? "Non disponible"
+                                                            : "—"}
+                                                    </span>
                                                 )}
                                             </td>
                                         </tr>

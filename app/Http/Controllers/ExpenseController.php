@@ -8,6 +8,7 @@ use App\Models\Contact;
 use App\Models\Expense;
 use App\Models\TaxRate;
 use App\Services\ExpenseService;
+use App\Services\SequenceService;
 use App\Support\ListQuery\DateRange;
 use App\Support\ListQuery\PerPage;
 use App\Support\ListQuery\SortSpec;
@@ -96,9 +97,7 @@ class ExpenseController extends Controller
     {
         $company = app('currentCompany');
 
-        // Contacts are fetched on demand via /suggest/contacts — no full list
-        // shipped on page load. Tax rates and class-6 accounts are small,
-        // bounded sets and stay inlined.
+        // Contacts are fetched on demand via /suggest/contacts
         $taxRates = TaxRate::query()
             ->where(function ($query) use ($company) {
                 $query->where('company_id', $company->id)
@@ -122,7 +121,6 @@ class ExpenseController extends Controller
             'expense_date' => $request->query('expense_date'),
             'total_ht' => $request->query('total_ht'),
             'total_vat' => $request->query('total_vat'),
-            'total_ttc' => $request->query('total_ttc'),
             'currency' => $request->query('currency'),
             'payment_method' => $request->query('payment_method'),
             'tax_rate_id' => $request->query('tax_rate_id'),
@@ -130,10 +128,11 @@ class ExpenseController extends Controller
             'contact_id' => $request->query('contact_id'),
         ];
 
-        // If this form is opened from an OCR document with a preselected
-        // supplier, resolve its display name once so the AsyncCombobox
-        // renders with a readable label instead of a UUID. Point-read on
-        // the PK, negligible cost.
+        // Compute TTC on the backend for initial render, read-only in frontend
+        $total_ht = $prefill['total_ht'] !== null ? (float)$prefill['total_ht'] : 0.0;
+        $total_vat = $prefill['total_vat'] !== null ? (float)$prefill['total_vat'] : 0.0;
+        $prefill['total_ttc'] = (string)(round($total_ht + $total_vat, 2));
+
         $prefillContact = null;
         if (! empty($prefill['contact_id'])) {
             $prefillContact = Contact::query()
@@ -145,36 +144,53 @@ class ExpenseController extends Controller
         return Inertia::render('Expenses/Create', [
             'taxRates' => $taxRates,
             'accounts' => $accounts,
-            'prefill' => array_filter($prefill, fn ($v) => $v !== null && $v !== ''),
+            'prefill' => $prefill,
             'prefillContact' => $prefillContact,
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, SequenceService $sequences): RedirectResponse
     {
         $company = app('currentCompany');
 
         $validated = $this->validateExpense($request);
+        $reference = trim((string) ($validated['reference'] ?? ''));
+        $allocated = null;
 
-        $expense = DB::transaction(function () use ($company, $validated) {
+        if ($reference === '') {
+            $allocated = $sequences->nextNumber(
+                companyId: $company->id,
+                documentType: 'expense',
+                issueDate: (string) $request->input('expense_date'),
+            );
+        }
+
+        $expense = DB::transaction(function () use ($company, $validated, $reference, $allocated) {
+            // Always ignore the passed total_ttc and recalculate (guard backend!)
+            $total_ht = isset($validated['total_ht']) ? (float) $validated['total_ht'] : 0.0;
+            $total_vat = isset($validated['total_vat']) ? (float) $validated['total_vat'] : 0.0;
+            $calculated_ttc = round($total_ht + $total_vat, 2);
+
             $expense = Expense::create([
                 'company_id' => $company->id,
                 'contact_id' => $validated['contact_id'] ?? null,
                 'supplier_snapshot' => null,
-                'reference' => $validated['reference'] ?? null,
+                'sequence_id' => $allocated['sequence_id'] ?? null,
+                'reference' => $reference !== '' ? $reference : ($allocated['number'] ?? null),
                 'expense_date' => $validated['expense_date'],
                 'due_date' => $validated['due_date'] ?? null,
                 'description' => $validated['description'] ?? null,
-                'total_ht' => $validated['total_ht'],
-                'total_vat' => $validated['total_vat'] ?? 0,
-                'total_ttc' => $validated['total_ttc'],
-                'account_id' => $validated['account_id'] ?? null,
+                'total_ht' => $total_ht,
+                'total_vat' => $total_vat,
+                'total_ttc' => $calculated_ttc,
+                'account_id' => $validated['expense_account_id'] ?? ($validated['account_id'] ?? null),
                 'status' => 'draft',
                 'source_document_id' => $validated['source_document_id'] ?? null,
                 'ai_extracted' => false,
                 'journal_entry_id' => null,
             ]);
 
+            // Replace all lines and recalc totals
             $this->syncLinesAndTotals($expense, $validated['lines'] ?? []);
 
             return $expense;
@@ -210,16 +226,19 @@ class ExpenseController extends Controller
         $validated = $this->validateExpense($request);
 
         DB::transaction(function () use ($expense, $validated) {
+            $total_ht = isset($validated['total_ht']) ? (float) $validated['total_ht'] : 0.0;
+            $total_vat = isset($validated['total_vat']) ? (float) $validated['total_vat'] : 0.0;
+            $calculated_ttc = round($total_ht + $total_vat, 2);
             $expense->update([
                 'contact_id' => $validated['contact_id'] ?? null,
                 'reference' => $validated['reference'] ?? null,
                 'expense_date' => $validated['expense_date'],
                 'due_date' => $validated['due_date'] ?? null,
                 'description' => $validated['description'] ?? null,
-                'total_ht' => $validated['total_ht'],
-                'total_vat' => $validated['total_vat'] ?? 0,
-                'total_ttc' => $validated['total_ttc'],
-                'account_id' => $validated['account_id'] ?? null,
+                'total_ht' => $total_ht,
+                'total_vat' => $total_vat,
+                'total_ttc' => $calculated_ttc,
+                'account_id' => $validated['expense_account_id'] ?? ($validated['account_id'] ?? null),
             ]);
 
             $this->syncLinesAndTotals($expense, $validated['lines'] ?? []);
@@ -253,6 +272,7 @@ class ExpenseController extends Controller
     {
         $company = app('currentCompany');
 
+        // total_ttc not trusted from frontend; only for initial payload (readonly input)
         return $request->validate([
             'contact_id' => 'nullable|uuid|exists:contacts,id',
             'reference' => 'nullable|string|max:100',
@@ -261,7 +281,9 @@ class ExpenseController extends Controller
             'description' => 'nullable|string|max:2000',
             'total_ht' => 'required|numeric|min:0',
             'total_vat' => 'nullable|numeric|min:0',
-            'total_ttc' => 'required|numeric|min:0',
+            // no 'required' on total_ttc: always auto-calculated backend (and read-only in UI)
+            'total_ttc' => 'nullable|numeric|min:0',
+            'expense_account_id' => 'nullable|uuid|exists:accounts,id',
             'account_id' => 'nullable|uuid|exists:accounts,id',
             'source_document_id' => 'nullable|uuid',
             'lines' => 'nullable|array',
@@ -273,6 +295,16 @@ class ExpenseController extends Controller
             'lines.*.tax_rate_id' => 'nullable|uuid',
             'lines.*.account_id' => 'nullable|uuid',
         ]);
+        $expectedTtc = round((float)($data['total_ht']) + (float)($data['total_vat'] ?? 0), 2);
+        $actualTtc   = round((float)$data['total_ttc'], 2);
+    
+        if (abs($expectedTtc - $actualTtc) > 0.01) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'total_ttc' => "Déséquilibre : TTC ({$actualTtc}) ≠ HT + TVA ({$expectedTtc})",
+            ]);
+        }
+    
+       
     }
 
     /**
@@ -280,50 +312,58 @@ class ExpenseController extends Controller
      * (HT / VAT / TTC) are recomputed from the lines and override any header
      * totals the client sent, guaranteeing consistency with the VAT purchase
      * report and the purchase journal entry.
+     * 
+     * Always recalculate the header totals from the lines!
      */
     private function syncLinesAndTotals(Expense $expense, array $lines): void
     {
         $expense->lines()->delete();
-
-        if (empty($lines)) {
-            return;
-        }
 
         $totalHt = 0.0;
         $totalVat = 0.0;
         $totalTtc = 0.0;
         $sort = 0;
 
-        foreach ($lines as $line) {
-            $ht = round((float) ($line['amount_ht'] ?? 0), 2);
-            $vatRate = (float) ($line['vat_rate_pct'] ?? 0);
-            $vatAmount = isset($line['amount_vat'])
-                ? round((float) $line['amount_vat'], 2)
-                : round($ht * $vatRate / 100, 2);
-            $ttc = isset($line['amount_ttc']) && (float) $line['amount_ttc'] > 0
-                ? round((float) $line['amount_ttc'], 2)
-                : round($ht + $vatAmount, 2);
+        if (!empty($lines)) {
+            foreach ($lines as $line) {
+                $ht = round((float) ($line['amount_ht'] ?? 0), 2);
+                $vatRate = (float) ($line['vat_rate_pct'] ?? 0);
+                $vatAmount = isset($line['amount_vat'])
+                    ? round((float) $line['amount_vat'], 2)
+                    : round($ht * $vatRate / 100, 2);
+                $ttc = isset($line['amount_ttc']) && (float) $line['amount_ttc'] > 0
+                    ? round((float) $line['amount_ttc'], 2)
+                    : round($ht + $vatAmount, 2);
 
-            $expense->lines()->create([
-                'designation' => $line['designation'],
-                'amount_ht' => $ht,
-                'vat_rate_pct' => $vatRate,
-                'amount_vat' => $vatAmount,
-                'amount_ttc' => $ttc,
-                'tax_rate_id' => $line['tax_rate_id'] ?? null,
-                'account_id' => $line['account_id'] ?? $expense->account_id,
-                'sort_order' => $sort++,
+                $expense->lines()->create([
+                    'designation' => $line['designation'],
+                    'amount_ht' => $ht,
+                    'vat_rate_pct' => $vatRate,
+                    'amount_vat' => $vatAmount,
+                    'amount_ttc' => $ttc,
+                    'tax_rate_id' => $line['tax_rate_id'] ?? null,
+                    'account_id' => $line['account_id'] ?? $expense->account_id,
+                    'sort_order' => $sort++,
+                ]);
+
+                $totalHt += $ht;
+                $totalVat += $vatAmount;
+                $totalTtc += $ttc;
+            }
+
+            // Always sync aggregate totals to match sum of lines
+            $expense->update([
+                'total_ht' => round($totalHt, 2),
+                'total_vat' => round($totalVat, 2),
+                'total_ttc' => round($totalTtc, 2),
             ]);
-
-            $totalHt += $ht;
-            $totalVat += $vatAmount;
-            $totalTtc += $ttc;
+        } else {
+            // Only update the header with basic HT + VAT arithmetic if there are no lines
+            $expense->update([
+                'total_ht' => round($expense->total_ht ?? 0.0, 2),
+                'total_vat' => round($expense->total_vat ?? 0.0, 2),
+                'total_ttc' => round(($expense->total_ht ?? 0.0) + ($expense->total_vat ?? 0.0), 2),
+            ]);
         }
-
-        $expense->update([
-            'total_ht' => round($totalHt, 2),
-            'total_vat' => round($totalVat, 2),
-            'total_ttc' => round($totalTtc, 2),
-        ]);
     }
 }

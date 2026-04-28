@@ -33,6 +33,7 @@ class Company extends Model
         'vat_registered',
         'fiscal_year_end',
         'currency',
+        'invoice_default_notes',
         'status',
         'period_lock_password_hash',
         'management_predictions_enabled',

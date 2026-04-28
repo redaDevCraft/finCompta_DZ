@@ -133,7 +133,7 @@ class ReconciliationController extends Controller
         $validated = $request->validate([
             'bank_transaction_id' => ['required', 'uuid'],
             'account_id' => ['required', 'uuid'],
-            'description' => ['required', 'string', 'max:1000'],
+            'description' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $companyId = app('currentCompany')->id;

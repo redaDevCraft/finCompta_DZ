@@ -155,6 +155,9 @@ class InvoiceController extends Controller
         return Inertia::render('Invoices/Create', [
             'taxRates' => $taxRates,
             'accounts' => $accounts,
+            'defaultPaymentTermsDays' => 30,
+            'defaultPaymentMode' => 'Virement bancaire',
+            'defaultNotes' => $company->invoice_default_notes,
         ]);
     }
 

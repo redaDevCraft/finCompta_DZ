@@ -10,6 +10,13 @@ const formatCurrency = (value) =>
         currency: 'DZD',
     }).format(Number(value ?? 0));
 
+const addDaysToIsoDate = (isoDate, days) => {
+    if (!isoDate) return '';
+    const baseDate = new Date(isoDate);
+    baseDate.setDate(baseDate.getDate() + Number(days || 0));
+    return baseDate.toISOString().split('T')[0];
+};
+
 function ContactSelector({ value, prefill, onChange, error }) {
     return (
         <div>
@@ -124,6 +131,7 @@ function InvoiceMeta({ data, setData, errors }) {
                     rows={4}
                     value={data.notes}
                     onChange={(e) => setData('notes', e.target.value)}
+                    placeholder="Ex: Merci pour votre confiance. Paiement à X jours."
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
                 {errors.notes ? (
@@ -183,8 +191,8 @@ function InvoiceLineTable({
 
     return (
         <div className="space-y-4">
-            <div className="overflow-x-auto rounded-xl border border-gray-200">
-                <table className="min-w-full divide-y divide-gray-200 bg-white">
+            <div className="w-full overflow-x-auto overflow-y-hidden rounded-xl border border-gray-200">
+                <table className="min-w-[1180px] divide-y divide-gray-200 bg-white [&_th]:!whitespace-nowrap [&_td]:!whitespace-nowrap">
                     <thead className="bg-gray-50">
                         <tr>
                             <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
@@ -328,7 +336,7 @@ function InvoiceLineTable({
                                             onChange={(e) => updateLine(index, 'account_id', e.target.value)}
                                             className="w-48 rounded-lg border border-gray-300 px-3 py-2 text-sm"
                                         >
-                                            <option value="">Aucun compte</option>
+                                            <option value="">701 - Ventes de marchandises (par défaut)</option>
                                             {accounts.map((account) => (
                                                <option key={account.id} value={account.id}>
                                                {account.code} - {account.label}
@@ -391,15 +399,24 @@ function InvoiceLineTable({
 }
 
 function InvoiceTotals({ computedLines }) {
-    const subtotalHt = computedLines.reduce((sum, line) => sum + Number(line.line_ht ?? 0), 0);
-    const totalTva = computedLines.reduce((sum, line) => sum + Number(line.line_vat ?? 0), 0);
-    const totalTtc = computedLines.reduce((sum, line) => sum + Number(line.line_ttc ?? 0), 0);
+    const subtotalHt = Math.round(
+        computedLines.reduce((sum, l) => sum + Number(l.line_ht ?? 0), 0) * 100
+    ) / 100;
+    
+    const totalTva = Math.round(
+        computedLines.reduce((sum, l) => sum + Number(l.line_vat ?? 0), 0) * 100
+    ) / 100;
+    
+    const totalTtc = Math.round((subtotalHt + totalTva) * 100) / 100; // ✅ always consistent
 
     const vatBuckets = computedLines.reduce((acc, line) => {
         const rate = Number(line.vat_rate_pct ?? 0);
         acc[rate] = Math.round(((acc[rate] ?? 0) + Number(line.line_vat ?? 0)) * 100) / 100;
         return acc;
     }, {});
+    Object.keys(vatBuckets).forEach(k => {
+        vatBuckets[k] = Math.round(vatBuckets[k] * 100) / 100;
+    });
 
     return (
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -435,18 +452,25 @@ function InvoiceTotals({ computedLines }) {
     );
 }
 
-export default function Create({ taxRates = [], accounts = [] }) {
+export default function Create({
+    taxRates = [],
+    accounts = [],
+    defaultPaymentTermsDays = 30,
+    defaultPaymentMode = 'Virement bancaire',
+    defaultNotes = '',
+}) {
     const [contactPrefill, setContactPrefill] = useState(null);
 
-    const duePlus30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+    const duePlus30 = addDaysToIsoDate(today, defaultPaymentTermsDays);
 
     const { data, setData, post, processing, errors } = useForm({
         contact_id: '',
-        issue_date: new Date().toISOString().split('T')[0],
+        issue_date: today,
         due_date: duePlus30,
         document_type: 'invoice',
-        payment_mode: 'Virement bancaire',
-        notes: '',
+        payment_mode: defaultPaymentMode || 'Virement bancaire',
+        notes: defaultNotes || '',
         lines: [
             {
                 designation: '',
@@ -477,7 +501,8 @@ export default function Create({ taxRates = [], accounts = [] }) {
                     ...l,
                     line_ht: lineHt,
                     line_vat: lineVat,
-                    line_ttc: lineHt + lineVat,
+                    line_ttc: Math.round((lineHt + lineVat) * 100) / 100,
+
                 };
             }),
         [data.lines]
@@ -531,6 +556,17 @@ export default function Create({ taxRates = [], accounts = [] }) {
                                 onChange={(id, option) => {
                                     setData('contact_id', id);
                                     setContactPrefill(option ?? null);
+
+                                    if (option?.default_payment_terms_days && data.issue_date) {
+                                        setData(
+                                            'due_date',
+                                            addDaysToIsoDate(data.issue_date, option.default_payment_terms_days)
+                                        );
+                                    }
+
+                                    if (option?.default_payment_mode) {
+                                        setData('payment_mode', option.default_payment_mode);
+                                    }
                                 }}
                                 error={errors.contact_id}
                             />

@@ -26,6 +26,10 @@ function emptyForm() {
         rc: '',
         email: '',
         phone: '',
+        default_payment_terms_days: '',
+        default_payment_mode: '',
+        default_expense_account_id: '',
+        default_tax_rate_id: '',
         address_line1: '',
         address_wilaya: '',
     };
@@ -41,21 +45,23 @@ function ContactForm({ initial, onClose, isEdit }) {
         if (isEdit && initial?.id) {
             put(`/contacts/${initial.id}`, {
                 preserveScroll: true,
-                onSuccess: () => {
-                    onClose();
-                    reset();
-                },
+                onSuccess: () => { onClose(); reset(); },
             });
         } else {
             post('/contacts', {
                 preserveScroll: true,
-                onSuccess: () => {
-                    onClose();
-                    reset();
-                },
+                onSuccess: () => { onClose(); reset(); },
             });
         }
     };
+
+    // Helper: returns red border class when field has an error
+    const inputClass = (field) =>
+        `w-full rounded-lg border px-3 py-2 text-sm ${
+            errors[field]
+                ? 'border-rose-400 bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-400'
+                : 'border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-400'
+        }`;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -82,13 +88,15 @@ function ContactForm({ initial, onClose, isEdit }) {
                             <select
                                 value={data.type}
                                 onChange={(e) => setData('type', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('type')}
                             >
                                 <option value="client">Client</option>
                                 <option value="supplier">Fournisseur</option>
                                 <option value="both">Les deux</option>
                             </select>
-                            {errors.type && <p className="mt-1 text-xs text-rose-600">{errors.type}</p>}
+                            {errors.type && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.type}</p>
+                            )}
                         </div>
 
                         <div>
@@ -98,12 +106,14 @@ function ContactForm({ initial, onClose, isEdit }) {
                             <select
                                 value={data.entity_type}
                                 onChange={(e) => setData('entity_type', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('entity_type')}
                             >
                                 <option value="enterprise">Entreprise</option>
                                 <option value="individual">Personne physique</option>
                             </select>
-                            {errors.entity_type && <p className="mt-1 text-xs text-rose-600">{errors.entity_type}</p>}
+                            {errors.entity_type && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.entity_type}</p>
+                            )}
                         </div>
                     </div>
 
@@ -115,10 +125,11 @@ function ContactForm({ initial, onClose, isEdit }) {
                             type="text"
                             value={data.display_name}
                             onChange={(e) => setData('display_name', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                            required
+                            className={inputClass('display_name')}
                         />
-                        {errors.display_name && <p className="mt-1 text-xs text-rose-600">{errors.display_name}</p>}
+                        {errors.display_name && (
+                            <p className="mt-1 text-xs text-rose-600">{errors.display_name}</p>
+                        )}
                     </div>
 
                     <div>
@@ -129,58 +140,64 @@ function ContactForm({ initial, onClose, isEdit }) {
                             type="text"
                             value={data.raison_sociale ?? ''}
                             onChange={(e) => setData('raison_sociale', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className={inputClass('raison_sociale')}
                         />
+                        {errors.raison_sociale && (
+                            <p className="mt-1 text-xs text-rose-600">{errors.raison_sociale}</p>
+                        )}
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div>
-                            <label className="mb-1 block text-sm font-medium text-slate-700">
-                                NIF
-                            </label>
+                            <label className="mb-1 block text-sm font-medium text-slate-700">NIF</label>
                             <input
                                 type="text"
                                 value={data.nif ?? ''}
                                 onChange={(e) => setData('nif', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('nif')}
                             />
+                            {errors.nif && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.nif}</p>
+                            )}
                         </div>
                         <div>
-                            <label className="mb-1 block text-sm font-medium text-slate-700">
-                                NIS
-                            </label>
+                            <label className="mb-1 block text-sm font-medium text-slate-700">NIS</label>
                             <input
                                 type="text"
                                 value={data.nis ?? ''}
                                 onChange={(e) => setData('nis', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('nis')}
                             />
+                            {errors.nis && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.nis}</p>
+                            )}
                         </div>
                         <div>
-                            <label className="mb-1 block text-sm font-medium text-slate-700">
-                                RC
-                            </label>
+                            <label className="mb-1 block text-sm font-medium text-slate-700">RC</label>
                             <input
                                 type="text"
                                 value={data.rc ?? ''}
                                 onChange={(e) => setData('rc', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('rc')}
                             />
+                            {errors.rc && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.rc}</p>
+                            )}
                         </div>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div>
-                            <label className="mb-1 block text-sm font-medium text-slate-700">
-                                Email
-                            </label>
+                            <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
                             <input
                                 type="email"
                                 value={data.email ?? ''}
                                 onChange={(e) => setData('email', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('email')}
                             />
-                            {errors.email && <p className="mt-1 text-xs text-rose-600">{errors.email}</p>}
+                            {errors.email && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.email}</p>
+                            )}
                         </div>
                         <div>
                             <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -190,33 +207,38 @@ function ContactForm({ initial, onClose, isEdit }) {
                                 type="text"
                                 value={data.phone ?? ''}
                                 onChange={(e) => setData('phone', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                className={inputClass('phone')}
                             />
+                            {errors.phone && (
+                                <p className="mt-1 text-xs text-rose-600">{errors.phone}</p>
+                            )}
                         </div>
                     </div>
 
                     <div>
-                        <label className="mb-1 block text-sm font-medium text-slate-700">
-                            Adresse
-                        </label>
+                        <label className="mb-1 block text-sm font-medium text-slate-700">Adresse</label>
                         <input
                             type="text"
                             value={data.address_line1 ?? ''}
                             onChange={(e) => setData('address_line1', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className={inputClass('address_line1')}
                         />
+                        {errors.address_line1 && (
+                            <p className="mt-1 text-xs text-rose-600">{errors.address_line1}</p>
+                        )}
                     </div>
 
                     <div>
-                        <label className="mb-1 block text-sm font-medium text-slate-700">
-                            Wilaya
-                        </label>
+                        <label className="mb-1 block text-sm font-medium text-slate-700">Wilaya</label>
                         <input
                             type="text"
                             value={data.address_wilaya ?? ''}
                             onChange={(e) => setData('address_wilaya', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            className={inputClass('address_wilaya')}
                         />
+                        {errors.address_wilaya && (
+                            <p className="mt-1 text-xs text-rose-600">{errors.address_wilaya}</p>
+                        )}
                     </div>
 
                     <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">

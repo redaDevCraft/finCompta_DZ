@@ -16,14 +16,14 @@ export default function Dashboard({
             <Head title="Tableau de bord" />
             <div className="space-y-6 p-1">
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
-                    <KpiCard label="Invoiced this month" value={kpis.invoiced_this_month} />
-                    <KpiCard label="Collected this month" value={kpis.collected_this_month} variant="success" />
-                    <KpiCard label="Outstanding receivables" value={kpis.outstanding_receivables} />
-                    <KpiCard label="Outstanding payables" value={kpis.outstanding_payables} />
+                    <KpiCard label="Facturé ce mois" value={kpis.invoiced_this_month} />
+                    <KpiCard label="Encaissé ce mois" value={kpis.collected_this_month} variant="success" />
+                    <KpiCard label="Créances en attente" value={kpis.outstanding_receivables} />
+                    <KpiCard label="Dettes en attente" value={kpis.outstanding_payables} />
                     <KpiCard
-                        label="Overdue invoices"
+                        label="Factures en retard"
                         value={kpis.overdue_amount}
-                        subLabel="Count"
+                        subLabel="Nombre"
                         subValue={kpis.overdue_count}
                         variant={Number(kpis.overdue_count) > 0 ? 'danger' : 'default'}
                     />
