@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('quotes', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('uuid_generate_v4()'));
+            $table->uuid('id')->primary();
             $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('contact_id')->nullable()->constrained('contacts')->nullOnDelete();
             $table->string('number', 50);

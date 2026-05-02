@@ -13,7 +13,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('invoices', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('uuid_generate_v4()'));
+            $table->uuid('id')->primary();
             $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('sequence_id')->constrained('invoice_sequences');
             $table->string('invoice_number', 50);

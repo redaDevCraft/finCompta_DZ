@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('payments', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('uuid_generate_v4()'));
+            $table->uuid('id')->primary();
             $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('subscription_id')->nullable()->constrained('subscriptions')->nullOnDelete();
             $table->foreignUuid('plan_id')->nullable()->constrained('plans')->nullOnDelete();

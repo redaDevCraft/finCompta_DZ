@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('invoice_payments', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('uuid_generate_v4()'));
+            $table->uuid('id')->primary();
             $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('invoice_id')->constrained('invoices')->cascadeOnDelete();
             $table->foreignUuid('contact_id')->nullable()->constrained('contacts')->nullOnDelete();

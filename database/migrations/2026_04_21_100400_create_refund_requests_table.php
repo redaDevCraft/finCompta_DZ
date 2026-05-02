@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('refund_requests', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('uuid_generate_v4()'));
+            $table->uuid('id')->primary();
             $table->foreignUuid('company_id')->constrained()->cascadeOnDelete();
             $table->foreignUuid('payment_id')->constrained('payments')->cascadeOnDelete();
             $table->foreignId('requested_by')->nullable()->constrained('users')->nullOnDelete();
