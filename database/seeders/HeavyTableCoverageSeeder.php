@@ -31,6 +31,8 @@ use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Faker\Factory as Faker;
+
 
 /**
  * Fills tables not covered by {@see HeavyTestingSeeder} so local QA can hit
@@ -200,6 +202,7 @@ class HeavyTableCoverageSeeder extends Seeder
         );
 
         $days = $this->intEnv('HEAVY_SEED_FX_DAYS', 45);
+        $faker = Faker::create('fr_FR');
         for ($d = 0; $d < $days; $d++) {
             $date = Carbon::now()->subDays($d)->toDateString();
             ExchangeRate::query()->updateOrCreate(
@@ -208,7 +211,7 @@ class HeavyTableCoverageSeeder extends Seeder
                     'currency_id' => $eur->id,
                     'rate_date' => $date,
                 ],
-                ['rate' => fake()->randomFloat(8, 140, 150)]
+                ['rate' => $faker->randomFloat(8, 140, 150)]
             );
             ExchangeRate::query()->updateOrCreate(
                 [
@@ -216,7 +219,7 @@ class HeavyTableCoverageSeeder extends Seeder
                     'currency_id' => $usd->id,
                     'rate_date' => $date,
                 ],
-                ['rate' => fake()->randomFloat(8, 128, 138)]
+                ['rate' => $faker->randomFloat(8, 128, 138)]
             );
         }
     }
@@ -248,19 +251,19 @@ class HeavyTableCoverageSeeder extends Seeder
                 'bank_account_id' => $bank->id,
                 'period_start' => $start,
                 'period_end' => $end,
-                'import_type' => fake()->randomElement(['pdf_ocr', 'csv', 'excel', 'manual']),
+                'import_type' => $faker->randomElement(['pdf_ocr', 'csv', 'excel', 'manual']),
                 'source_document_path' => "heavy/bank-{$b}.csv",
-                'opening_balance' => fake()->randomFloat(2, 100_000, 5_000_000),
-                'closing_balance' => fake()->randomFloat(2, 100_000, 5_000_000),
+                'opening_balance' => $faker->randomFloat(2, 100_000, 5_000_000),
+                'closing_balance' => $faker->randomFloat(2, 100_000, 5_000_000),
                 'row_count' => 0,
                 'imported_by' => $userId,
             ]);
 
             for ($i = 0; $i < (int) ceil($nTx / $nImports); $i++) {
-                $dir = fake()->randomElement(['debit', 'credit']);
-                $amount = fake()->randomFloat(2, 500, 250_000);
-                $status = fake()->randomElement(['unmatched', 'unmatched', 'unmatched', 'matched', 'manually_posted', 'excluded']);
-                $label = 'HVY-RIB '.strtoupper(Str::random(6)).' '.fake()->words(3, true);
+                $dir = $faker->randomElement(['debit', 'credit']);
+                $amount = $faker->randomFloat(2, 500, 250_000);
+                $status = $faker->randomElement(['unmatched', 'unmatched', 'unmatched', 'matched', 'manually_posted', 'excluded']);
+                $label = 'HVY-RIB '.strtoupper(Str::random(6)).' '.$faker->words(3, true);
                 if ($b === 0 && $i < 8) {
                     $status = 'unmatched';
                 }
@@ -275,7 +278,7 @@ class HeavyTableCoverageSeeder extends Seeder
                     'label' => $label,
                     'amount' => $amount,
                     'direction' => $dir,
-                    'balance_after' => fake()->optional(0.4)->randomFloat(2, 0, 8_000_000),
+                    'balance_after' => $faker->optional(0.4)->randomFloat(2, 0, 8_000_000),
                     'reconcile_status' => $status,
                     'journal_entry_id' => null,
                     'matched_by' => $status === 'matched' ? $userId : null,
@@ -291,7 +294,7 @@ class HeavyTableCoverageSeeder extends Seeder
         $statuses = ['pending', 'processing', 'done', 'done', 'done', 'failed'];
         for ($i = 0; $i < $n; $i++) {
             $id = (string) Str::uuid();
-            $ocr = fake()->randomElement($statuses);
+            $ocr = $faker->randomElement($statuses);
             $doc = Document::query()->create([
                 'id' => $id,
                 'company_id' => $company->id,
@@ -299,26 +302,26 @@ class HeavyTableCoverageSeeder extends Seeder
                 'mime_type' => 'application/pdf',
                 'file_size_bytes' => random_int(8_000, 900_000),
                 'storage_key' => "heavy-seed/{$company->id}/{$id}.pdf",
-                'document_type' => fake()->randomElement(['invoice_pdf', 'supplier_bill', 'bank_statement']),
+                'document_type' => $faker->randomElement(['invoice_pdf', 'supplier_bill', 'bank_statement']),
                 'source' => 'upload',
                 'ocr_status' => $ocr,
-                'ocr_raw_text' => $ocr === 'done' ? "FACTURE FOURNISSEUR\nTTC ".fake()->randomFloat(2, 100, 50_000) : null,
-                'ocr_parsed_hints' => $ocr === 'done' ? ['total_ttc' => (string) fake()->randomFloat(2, 100, 50_000)] : null,
+                'ocr_raw_text' => $ocr === 'done' ? "FACTURE FOURNISSEUR\nTTC ".$faker->randomFloat(2, 100, 50_000) : null,
+                'ocr_parsed_hints' => $ocr === 'done' ? ['total_ttc' => (string) $faker->randomFloat(2, 100, 50_000)] : null,
                 'ocr_error' => $ocr === 'failed' ? 'OCR simulé: page illisible' : null,
                 'retention_until' => $ocr === 'done' ? Carbon::now()->addYears(10) : null,
                 'uploaded_by' => $userId,
             ]);
-            if (fake()->boolean(40)) {
+            if ($faker->boolean(40)) {
                 AiSuggestion::query()->create([
                     'id' => (string) Str::uuid(),
                     'company_id' => $company->id,
                     'user_id' => $userId,
                     'source_type' => 'document',
                     'source_id' => $doc->id,
-                    'field_name' => fake()->randomElement(['vendor_name', 'total_ht', 'total_ttc', 'nif', 'date']),
-                    'suggested_value' => fake()->company(),
-                    'confidence' => fake()->randomFloat(3, 0.4, 0.99),
-                    'accepted' => fake()->optional(0.3)->boolean(),
+                    'field_name' => $faker->randomElement(['vendor_name', 'total_ht', 'total_ttc', 'nif', 'date']),
+                    'suggested_value' => $faker->company(),
+                    'confidence' => $faker->randomFloat(3, 0.4, 0.99),
+                    'accepted' => $faker->optional(0.3)->boolean(),
                     'final_value' => null,
                 ]);
             }
@@ -330,7 +333,7 @@ class HeavyTableCoverageSeeder extends Seeder
         $types = [ReportRun::TYPE_BILAN_PDF, ReportRun::TYPE_VAT_XLSX, ReportRun::TYPE_ANALYTIC_TRIAL_BALANCE_XLSX];
         $n = $this->intEnv('HEAVY_SEED_REPORT_RUNS', 25);
         for ($i = 0; $i < $n; $i++) {
-            $status = fake()->randomElement([
+            $status = $faker->randomElement([
                 ReportRun::STATUS_QUEUED,
                 ReportRun::STATUS_RUNNING,
                 ReportRun::STATUS_READY,
@@ -341,7 +344,7 @@ class HeavyTableCoverageSeeder extends Seeder
                 'id' => (string) Str::uuid(),
                 'company_id' => $company->id,
                 'user_id' => $userId,
-                'type' => fake()->randomElement($types),
+                'type' => $faker->randomElement($types),
                 'params' => ['from' => '2026-01-01', 'to' => '2026-12-31', 'i' => $i],
                 'status' => $status,
             ];
@@ -387,7 +390,7 @@ class HeavyTableCoverageSeeder extends Seeder
                 'period_type' => 'month',
                 'period_start_date' => $start->toDateString(),
                 'period_end_date' => $end->toDateString(),
-                'amount' => fake()->randomFloat(2, 10_000, 500_000),
+                'amount' => $faker->randomFloat(2, 10_000, 500_000),
                 'comment' => 'Objectif lourd (seed) '.$i,
             ]);
         }
@@ -424,7 +427,7 @@ class HeavyTableCoverageSeeder extends Seeder
                 ],
                 [
                     'can_view' => true,
-                    'can_post' => fake()->boolean(70),
+                    'can_post' => $faker->boolean(70),
                 ]
             );
         }
@@ -489,11 +492,11 @@ class HeavyTableCoverageSeeder extends Seeder
         $createdPayments = [];
         for ($i = 0; $i < $nPay; $i++) {
             $g = $gateways[array_rand($gateways)];
-            $status = fake()->randomElement(['pending', 'processing', 'paid', 'failed', 'canceled', 'refunded', 'expired', 'paid', 'pending']);
+            $status = $faker->randomElement(['pending', 'processing', 'paid', 'failed', 'canceled', 'refunded', 'expired', 'paid', 'pending']);
             $ref = 'HVY-PMT-'.strtoupper((string) Str::ulid());
             $approval = 'none';
             if ($g === 'bon_de_commande') {
-                $approval = fake()->randomElement(['none', 'proof_missing', 'proof_uploaded', 'approved', 'rejected', 'awaiting_second_approval']);
+                $approval = $faker->randomElement(['none', 'proof_missing', 'proof_uploaded', 'approved', 'rejected', 'awaiting_second_approval']);
             }
             $paidAt = in_array($status, ['refunded', 'paid'], true) ? now()->subDays(random_int(1, 40)) : null;
             $payment = Payment::query()->create([
@@ -502,7 +505,7 @@ class HeavyTableCoverageSeeder extends Seeder
                 'plan_id' => $plan->id,
                 'reference' => $ref,
                 'gateway' => $g,
-                'method' => fake()->boolean(80) ? fake()->randomElement(['edahabia', 'cib', 'bank_transfer']) : null,
+                'method' => $faker->boolean(80) ? $faker->randomElement(['edahabia', 'cib', 'bank_transfer']) : null,
                 'billing_cycle' => 'monthly',
                 'amount_dzd' => $price,
                 'currency' => 'DZD',
