@@ -31,6 +31,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Faker\Factory as FakerFactory;
 
 /**
  * Fills tables not covered by {@see HeavyTestingSeeder} so local QA can hit
@@ -39,11 +40,11 @@ use Illuminate\Support\Str;
  */
 class HeavyTableCoverageSeeder extends Seeder
 {
-    private \Faker\Generator $faker;
+    private $faker;
 
     public function __construct()
     {
-        $this->faker = app(\Faker\Generator::class);
+        $this->faker = FakerFactory::create();
         // Optionally, if you want to set locale:
         // $this->faker->locale('fr_FR');
     }
