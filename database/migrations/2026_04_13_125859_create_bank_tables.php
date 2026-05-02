@@ -58,7 +58,7 @@ return new class extends Migration
             $table->foreignId('matched_by')->nullable()->constrained('users');
             $table->timestamp('matched_at')->nullable();
             $table->timestamps();
-            $table->index(['company_id', 'reconcile_status', 'transaction_date']);
+            $table->index(['company_id', 'reconcile_status', 'transaction_date'], 'bt_company_reconcile_date_idx');
         });
     }
 
