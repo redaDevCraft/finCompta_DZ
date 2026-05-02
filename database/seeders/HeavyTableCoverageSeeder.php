@@ -31,8 +31,6 @@ use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Faker\Factory as Faker;
-
 
 /**
  * Fills tables not covered by {@see HeavyTestingSeeder} so local QA can hit
@@ -45,7 +43,9 @@ class HeavyTableCoverageSeeder extends Seeder
 
     public function __construct()
     {
-        $this->faker = Faker::create('fr_FR');
+        $this->faker = app(\Faker\Generator::class);
+        // Optionally, if you want to set locale:
+        // $this->faker->locale('fr_FR');
     }
 
     public function run(): void
@@ -210,7 +210,7 @@ class HeavyTableCoverageSeeder extends Seeder
         );
         $faker = $this->faker;
         $days = $this->intEnv('HEAVY_SEED_FX_DAYS', 45);
-       
+
         for ($d = 0; $d < $days; $d++) {
             $date = Carbon::now()->subDays($d)->toDateString();
             ExchangeRate::query()->updateOrCreate(
