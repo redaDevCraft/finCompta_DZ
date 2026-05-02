@@ -18,11 +18,13 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
+use Faker\Factory as Faker;
 
 class HeavyTestingSeeder extends Seeder
 {
     public function run(): void
     {
+      
         $companies = Company::query()->get(['id', 'currency']);
 
         if ($companies->isEmpty()) {
@@ -83,21 +85,23 @@ class HeavyTestingSeeder extends Seeder
                 $runningSeq = (int) $sequence->last_number;
 
                 $contacts = collect();
+                $faker = Faker::create('fr_FR');
                 for ($i = 0; $i < $contactsPerCompany; $i++) {
-                    $contactType = fake()->randomElement(['client', 'supplier', 'both']);
+
+                    $contactType = $faker->randomElement(['client', 'supplier', 'both']);
                     $contacts->push(Contact::query()->create([
                         'company_id' => $company->id,
                         'type' => $contactType,
-                        'entity_type' => fake()->randomElement(['individual', 'enterprise']),
+                        'entity_type' => $faker->randomElement(['individual', 'enterprise']),
                         'display_name' => sprintf('HEAVY-%s-%s', strtoupper($contactType), Str::upper(Str::random(10))),
-                        'raison_sociale' => fake()->boolean(70) ? fake()->company() : null,
-                        'nif' => fake()->boolean(65) ? (string) fake()->numerify('###############') : null,
-                        'nis' => fake()->boolean(50) ? (string) fake()->numerify('###############') : null,
-                        'rc' => fake()->boolean(70) ? (string) fake()->bothify('##B#######') : null,
-                        'address_line1' => fake()->streetAddress(),
-                        'address_wilaya' => fake()->city(),
-                        'email' => fake()->safeEmail(),
-                        'phone' => fake()->phoneNumber(),
+                        'raison_sociale' => $faker->boolean(70) ? $faker->company() : null,
+                        'nif' => $faker->boolean(65) ? (string) $faker->numerify('###############') : null,
+                        'nis' => $faker->boolean(50) ? (string) $faker->numerify('###############') : null,
+                        'rc' => $faker->boolean(70) ? (string) $faker->bothify('##B#######') : null,
+                        'address_line1' => $faker->streetAddress(),
+                        'address_wilaya' => $faker->city(),
+                        'email' => $faker->safeEmail(),
+                        'phone' => $faker->phoneNumber(),
                         'is_active' => true,
                     ]));
                 }
@@ -121,11 +125,11 @@ class HeavyTestingSeeder extends Seeder
                         'company_id' => $company->id,
                         'contact_id' => $contact->id,
                         'number' => $number,
-                        'status' => fake()->randomElement(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+                        'status' => $faker->randomElement(['draft', 'sent', 'accepted', 'rejected', 'expired']),
                         'issue_date' => $issueDate,
                         'expiry_date' => Carbon::parse($issueDate)->addDays(random_int(10, 45))->toDateString(),
                         'currency_id' => null,
-                        'notes' => fake()->sentence(8),
+                        'notes' => $faker->sentence(8),
                         'reference' => 'HVY-Q-'.Str::upper(Str::random(8)),
                         'created_by_user_id' => $createdBy ?: null,
                         'updated_by_user_id' => $createdBy ?: null,
@@ -135,9 +139,9 @@ class HeavyTestingSeeder extends Seeder
                     $lineCount = random_int(1, $maxLinesPerDocument);
                     for ($line = 0; $line < $lineCount; $line++) {
                         $lines[] = [
-                            'description' => fake()->words(random_int(2, 6), true),
+                            'description' => $faker->words(random_int(2, 6), true),
                             'quantity' => random_int(1, 12),
-                            'unit_price' => fake()->randomFloat(2, 300, 90000),
+                            'unit_price' => $faker->randomFloat(2, 300, 90000),
                             'vat_rate' => $vatRate,
                             'sort_order' => $line,
                         ];
@@ -170,12 +174,12 @@ class HeavyTestingSeeder extends Seeder
                         'client_snapshot' => null,
                         'issue_date' => $issueDate->toDateString(),
                         'due_date' => $dueDate->toDateString(),
-                        'payment_mode' => fake()->randomElement(['bank_transfer', 'cash', 'card']),
+                        'payment_mode' => $faker->randomElement(['bank_transfer', 'cash', 'card']),
                         'currency' => $company->currency ?: 'DZD',
                         'subtotal_ht' => 0,
                         'total_vat' => 0,
                         'total_ttc' => 0,
-                        'notes' => fake()->sentence(10),
+                        'notes' => $faker->sentence(10),
                         'original_invoice_id' => null,
                         'issued_at' => null,
                         'issued_by' => null,
@@ -187,12 +191,12 @@ class HeavyTestingSeeder extends Seeder
                     $lineCount = random_int(1, $maxLinesPerDocument);
                     for ($line = 0; $line < $lineCount; $line++) {
                         $quantity = random_int(1, 15);
-                        $unitPrice = fake()->randomFloat(2, 250, 120000);
-                        $discount = fake()->randomElement([0, 0, 0, 5, 10, 15]);
+                        $unitPrice = $faker->randomFloat(2, 250, 120000);
+                        $discount = $faker->randomElement([0, 0, 0, 5, 10, 15]);
                         $lines[] = [
-                            'designation' => fake()->words(random_int(2, 6), true),
+                            'designation' => $faker->words(random_int(2, 6), true),
                             'quantity' => $quantity,
-                            'unit' => fake()->randomElement(['u', 'h', 'kg', 'm2']),
+                            'unit' => $faker->randomElement(['u', 'h', 'kg', 'm2']),
                             'unit_price_ht' => $unitPrice,
                             'discount_pct' => $discount,
                             'tax_rate_id' => $taxRateId,
@@ -204,7 +208,7 @@ class HeavyTestingSeeder extends Seeder
 
                     $invoiceService->saveLines($invoice, $lines);
 
-                    $invoiceStatus = fake()->randomElement(['draft', 'issued', 'partially_paid', 'paid', 'voided']);
+                    $invoiceStatus = $faker->randomElement(['draft', 'issued', 'partially_paid', 'paid', 'voided']);
 
                     if (in_array($invoiceStatus, ['partially_paid', 'paid'], true)) {
                         $total = (float) $invoice->total_ttc;
@@ -218,7 +222,7 @@ class HeavyTestingSeeder extends Seeder
                             'contact_id' => $invoice->contact_id,
                             'date' => $issueDate->copy()->addDays(random_int(1, 20))->toDateString(),
                             'amount' => $paidAmount,
-                            'method' => fake()->randomElement(['bank_transfer', 'cash', 'card']),
+                            'method' => $faker->randomElement(['bank_transfer', 'cash', 'card']),
                             'reference' => 'HVY-PAY-'.Str::upper(Str::random(10)),
                             'created_by_user_id' => $createdBy ?: null,
                         ]);
@@ -253,14 +257,14 @@ class HeavyTestingSeeder extends Seeder
                         'reference' => 'HVY-EXP-'.Str::upper(Str::random(10)),
                         'expense_date' => $expenseDate->toDateString(),
                         'due_date' => $expenseDate->copy()->addDays(random_int(7, 45))->toDateString(),
-                        'description' => fake()->sentence(8),
+                        'description' => $faker->sentence(8),
                         'total_ht' => 0,
                         'total_vat' => 0,
                         'total_ttc' => 0,
                         'account_id' => null,
-                        'status' => fake()->randomElement(['draft', 'confirmed', 'paid', 'cancelled']),
+                        'status' => $faker->randomElement(['draft', 'confirmed', 'paid', 'cancelled']),
                         'source_document_id' => null,
-                        'ai_extracted' => fake()->boolean(10),
+                        'ai_extracted' => $faker->boolean(10),
                         'journal_entry_id' => null,
                     ]);
 
@@ -268,12 +272,12 @@ class HeavyTestingSeeder extends Seeder
                     $totalVat = 0.0;
                     $lineCount = random_int(1, $maxLinesPerDocument);
                     for ($line = 0; $line < $lineCount; $line++) {
-                        $amountHt = fake()->randomFloat(2, 150, 70000);
+                        $amountHt = $faker->randomFloat(2, 150, 70000);
                         $amountVat = round($amountHt * $vatRate / 100, 2);
                         $amountTtc = round($amountHt + $amountVat, 2);
 
                         $expense->lines()->create([
-                            'designation' => fake()->words(random_int(2, 6), true),
+                            'designation' => $faker->words(random_int(2, 6), true),
                             'amount_ht' => $amountHt,
                             'vat_rate_pct' => $vatRate,
                             'amount_vat' => $amountVat,
