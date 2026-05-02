@@ -3,14 +3,28 @@
 @tailwind utilities;
 
 @layer base {
+    @keyframes fadeInUpChat {
+        from {
+            opacity: 0;
+            transform: translateY(4px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .chat-message-animate {
+        animation: fadeInUpChat 0.18s ease-out;
+    }
+
     html {
         /*
          * Slight global type scaling:
          * keeps mobile readable while giving desktop a bit more comfort.
          */
         font-size: clamp(15px, 0.22vw + 14px, 17px);
-
-
     }
 
     body {
@@ -24,7 +38,38 @@
 
 @layer components {
     .sticky-back-button {
-        @apply fixed bottom-4 right-4 z-[70] inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg transition-all hover:-translate-y-0.5 hover:bg-slate-50 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 sm:bottom-6 sm:right-6;
+        @apply fixed bottom-4 right-4 z-[70] inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg transition-all;
+        /* The following were invalid usage in @apply:
+           hover: -translate-y-0.5 hover:bg-slate-50 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2
+           So, replace them with regular CSS for pseudo-classes: */
+        /* Hover states */
+        transition-property: all;
+        transition-duration: 150ms;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .sticky-back-button:hover {
+        transform: translateY(-2px);
+        background-color: #f8fafc;
+        /* tailwind slate-50 */
+        color: #0f172a;
+        /* tailwind slate-900 */
+    }
+
+    .sticky-back-button:focus-visible {
+        /* These values match Tailwind's ring utilities */
+        outline: none;
+        box-shadow: 0 0 0 2px #6366f1, 0 0 0 4px #fff;
+        /* indigo-500 ring, white offset */
+    }
+
+    @media (min-width: 640px) {
+        .sticky-back-button {
+            bottom: 1.5rem;
+            /* sm:bottom-6 */
+            right: 1.5rem;
+            /* sm:right-6 */
+        }
     }
 
     .app-content :where(.overflow-x-auto > table) {

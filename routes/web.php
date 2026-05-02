@@ -39,6 +39,8 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SupplierController;
 use FontLib\Table\Type\name;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AiChatController;
+
 
  // Removed invalid class definition to fix syntax error
 
@@ -204,7 +206,7 @@ Route::middleware(['auth'])->group(function () {
 */
 
 
-Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function () {
+Route::middleware(['auth', 'verified', 'company', 'subscribed','plan_feature:ai_chat'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     /* ── Clients & Suppliers (server-side paginated) ────────────────── */
@@ -620,24 +622,12 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed'])->group(function
         ->middleware('role:owner')
         ->name('settings.bank-accounts.destroy');
 
+    Route::post('/ai/chat', [AiChatController::class, 'ask'])
+        ->middleware('throttle:ai-chat')
+        ->name('ai.chat');
+
    
-     // now were trying the inctance taht verifies the exact same object
-
     
-    
-    
-        
-      
-
-        
-
-    Route::get('/practise-container',function(){
-
-    
-
-
-    })->name('practise');
-
 });
 
 require __DIR__.'/auth.php';

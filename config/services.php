@@ -63,6 +63,15 @@ return [
         'base_url_live' => env('CHARGILY_BASE_URL_LIVE', 'https://pay.chargily.net/api/v2'),
     ],
 
+    'gemini' => [
+    'api_key' => env('GEMINI_API_KEY'),
+    'model'   => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+    ],
+    'groq' => [
+    'api_key' => env('GROQ_API_KEY'),
+    'model'   => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+    ],
+
     'saas' => [
         'trial_days' => (int) env('SAAS_TRIAL_DAYS', 3),
         'grace_days' => (int) env('SAAS_GRACE_DAYS', 3),

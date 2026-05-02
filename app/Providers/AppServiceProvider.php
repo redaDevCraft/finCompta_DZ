@@ -6,15 +6,17 @@ use App\Contracts\PaymentGatewayInterface;
 use App\Models\InvoicePayment;
 use App\Observers\InvoicePaymentObserver;
 use App\Services\ChargilyService;
-use AreportController;
 use Chargily\ChargilyPay\Auth\Credentials;
 use Chargily\ChargilyPay\ChargilyPay;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
-use localStorage;
-use S3Storage;
-use StorageInterface;
-use TestController;
+use App\Actions\Ai\AskAiAction;
+use App\Services\Ai\AiContextExtractor;
+use App\Services\Ai\AiIntentClassifier;
+use App\Services\Ai\AiPromptBuilder;
+use App\Services\Ai\AiResponseSanitizer;
+use App\Services\Ai\GroqService;
+
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -62,6 +64,30 @@ class AppServiceProvider extends ServiceProvider
         PaymentGatewayInterface::class,
         ChargilyService::class
     );
+
+    $this->app->singleton(GroqService::class, function () {
+        return new GroqService(
+            apiKey: config('services.groq.api_key'),
+            model:  config('services.groq.model'),
+        );
+    });
+
+    $this->app->singleton(AiIntentClassifier::class);
+    $this->app->singleton(AiContextExtractor::class);
+    $this->app->singleton(AiPromptBuilder::class);
+    $this->app->singleton(AiResponseSanitizer::class);
+
+    $this->app->bind(AskAiAction::class, function ($app) {
+        return new AskAiAction(
+            $app->make(AiIntentClassifier::class),
+            $app->make(AiContextExtractor::class),
+            $app->make(AiPromptBuilder::class),
+            $app->make(GroqService::class),
+            $app->make(AiResponseSanitizer::class),
+        );
+    });
+
+
 }
 
     /**

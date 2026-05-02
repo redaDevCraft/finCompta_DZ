@@ -81,7 +81,12 @@
     },
     "extra": {
         "laravel": {
-            "dont-discover": []
+            "dont-discover": [
+                "barryvdh/laravel-debugbar"
+            ]
+        },
+        "aliases": {
+            "Chargily": "App\\Facades\\Chargily"
         }
     },
     "config": {

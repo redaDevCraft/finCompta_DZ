@@ -125,6 +125,16 @@ class RateLimiterServiceProvider extends ServiceProvider
         RateLimiter::for('trial-start', fn (Request $request) => [
             Limit::perHour(8)->by($this->userKey($request, 'trial-start')),
         ]);
+
+        RateLimiter::for('ai-chat', function (Request $request) {
+            $userId    = optional($request->user())->id;
+            $companyId = app()->has('currentCompany') ? app('currentCompany')->id : null;
+        
+            return [
+                Limit::perMinute(5)->by($userId ?: $request->ip()),
+                Limit::perDay(200)->by($companyId ?: $request->ip()),
+            ];
+        });
     }
 
     /**

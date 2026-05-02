@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Seeders\CompanyBootstrapSeeder;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +14,7 @@ use Illuminate\Support\Str;
 class Company extends Model
 {
     use SoftDeletes;
+    use HasUuids;
 
     protected $primaryKey = 'id';
 

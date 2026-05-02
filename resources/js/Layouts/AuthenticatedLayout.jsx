@@ -33,6 +33,7 @@ import {
     Users,
     X,
 } from 'lucide-react';
+import ChatPopup from '@/Components/UI/Ai/ChatPopup';
 
 const DESKTOP_BREAKPOINT = 1024;
 const SIDEBAR_DEFAULT_WIDTH = 288;
@@ -1116,7 +1117,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                             value={quickQuery}
                                             onChange={(e) => setQuickQuery(e.target.value)}
                                             placeholder="Recherche action rapide..."
-                                            className="w-56 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                                            className="w-56 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 border-0"
                                         />
                                     </div>
                                     {quickQuery.trim().length > 0 && (
@@ -1268,7 +1269,9 @@ export default function AuthenticatedLayout({ header, children }) {
 
                 <main className="app-content px-4 py-6 text-[0.92rem] sm:px-6 lg:px-8">{children}</main>
             </div>
-            <StickyBackButton />
+            {/* <StickyBackButton /> */}
+            <ChatPopup />
+
         </div>
     );
 }
