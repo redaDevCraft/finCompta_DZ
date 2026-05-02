@@ -176,7 +176,15 @@ class DashboardMetricsService
             ')
             ->where('invoices.company_id', $this->company->id)
             ->whereIn('invoices.status', ['issued', 'paid', 'partially_paid'])
-            ->groupBy('invoices.id', 'contacts.display_name')
+            ->groupBy(
+                'invoices.id',
+                'invoices.invoice_number',
+                'invoices.total_ttc',
+                'invoices.status',
+                'invoices.due_date',
+                'invoices.issue_date',
+                'contacts.display_name'
+            )
             ->orderByDesc('invoices.issue_date')
             ->limit($limit)
             ->get();
