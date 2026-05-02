@@ -41,8 +41,16 @@ use Faker\Factory as Faker;
  */
 class HeavyTableCoverageSeeder extends Seeder
 {
+    private \Faker\Generator $faker;
+
+    public function __construct()
+    {
+        $this->faker = Faker::create('fr_FR');
+    }
+
     public function run(): void
     {
+
         /** @var \Illuminate\Database\Eloquent\Collection<int, Company> $companies */
         $companies = Company::query()->get();
         if ($companies->isEmpty()) {
@@ -200,9 +208,9 @@ class HeavyTableCoverageSeeder extends Seeder
                 'is_active' => true,
             ]
         );
-
+        $faker = $this->faker;
         $days = $this->intEnv('HEAVY_SEED_FX_DAYS', 45);
-        $faker = Faker::create('fr_FR');
+       
         for ($d = 0; $d < $days; $d++) {
             $date = Carbon::now()->subDays($d)->toDateString();
             ExchangeRate::query()->updateOrCreate(
@@ -226,6 +234,7 @@ class HeavyTableCoverageSeeder extends Seeder
 
     private function seedBankData(Company $company, int $userId, string $gl512Id): void
     {
+        $faker = $this->faker;
         $bank = BankAccount::query()->firstOrCreate(
             [
                 'company_id' => $company->id,
@@ -290,6 +299,7 @@ class HeavyTableCoverageSeeder extends Seeder
 
     private function seedDocumentsAndAi(Company $company, int $userId): void
     {
+        $faker = $this->faker;
         $n = $this->intEnv('HEAVY_SEED_DOCUMENTS', 60);
         $statuses = ['pending', 'processing', 'done', 'done', 'done', 'failed'];
         for ($i = 0; $i < $n; $i++) {
@@ -330,6 +340,7 @@ class HeavyTableCoverageSeeder extends Seeder
 
     private function seedReportRuns(Company $company, int $userId): void
     {
+        $faker = $this->faker;
         $types = [ReportRun::TYPE_BILAN_PDF, ReportRun::TYPE_VAT_XLSX, ReportRun::TYPE_ANALYTIC_TRIAL_BALANCE_XLSX];
         $n = $this->intEnv('HEAVY_SEED_REPORT_RUNS', 25);
         for ($i = 0; $i < $n; $i++) {
@@ -368,6 +379,7 @@ class HeavyTableCoverageSeeder extends Seeder
 
     private function seedManagementPredictions(Company $company, $accountsByCode): void
     {
+        $faker = $this->faker;
         $sectionId = AnalyticSection::query()
             ->where('company_id', $company->id)
             ->where('code', 'A-VENTE')
@@ -418,6 +430,7 @@ class HeavyTableCoverageSeeder extends Seeder
 
     private function seedJournalUserPermissions(Company $company, int $userId): void
     {
+        $faker = $this->faker;
         $journals = Journal::query()->where('company_id', $company->id)->limit(4)->pluck('id');
         foreach ($journals as $journalId) {
             JournalUserPermission::query()->updateOrCreate(
@@ -473,6 +486,7 @@ class HeavyTableCoverageSeeder extends Seeder
             return;
         }
 
+        $faker = $this->faker;
         $sub = Subscription::query()->where('company_id', $company->id)->latest()->first();
         if (! $sub) {
             $sub = Subscription::query()->create([
