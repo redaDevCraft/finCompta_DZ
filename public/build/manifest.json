@@ -1292,7 +1292,7 @@
     ]
   },
   "resources/js/app.jsx": {
-    "file": "assets/app-Bz6OjGdN.js",
+    "file": "assets/app-BZNELocZ.js",
     "name": "app",
     "src": "resources/js/app.jsx",
     "isEntry": true,
@@ -1381,7 +1381,7 @@
       "resources/js/Pages/companies/CompanySelect.jsx"
     ],
     "css": [
-      "assets/app-Cx0tJupQ.css"
+      "assets/app-eQjgFKVJ.css"
     ]
   }
 }
