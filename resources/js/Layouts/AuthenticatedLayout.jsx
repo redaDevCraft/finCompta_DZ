@@ -32,6 +32,7 @@ import {
     User,
     Users,
     X,
+    UploadCloud,
 } from 'lucide-react';
 import ChatPopup from '@/Components/UI/Ai/ChatPopup';
 
@@ -65,7 +66,9 @@ const baseNavGroups = [
         items: [
             { href: '/settings/bank-accounts', label: 'Comptes bancaires', icon: Landmark },
             { href: '/bank/reconcile', label: 'Rapprochement', icon: ArrowLeftRight },
-            { href: '/documents', label: 'Relevés importés', icon: Upload },
+            { href: '/bank/import', label: 'Importer un relevé', icon:  UploadCloud },
+
+            
         ],
     },
     {

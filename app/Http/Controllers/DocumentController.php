@@ -56,8 +56,8 @@ class DocumentController extends Controller
         $maxKb = (int) config('ocr.upload.max_size_kb', 20480);
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp,heic', 'max:'.$maxKb],
-            'document_type' => ['required', 'in:supplier_bill,expense,invoice,bank_statement,other'],
+            'file'          => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp,heic', 'max:' . $maxKb],
+            'document_type' => ['nullable', 'in:purchase_invoice,sales_invoice,credit_note,bank_statement,receipt,other'],
         ]);
 
         $company = app('currentCompany');
@@ -79,7 +79,7 @@ class DocumentController extends Controller
             'mime_type' => $file->getMimeType(),
             'file_size_bytes' => $file->getSize(),
             'storage_key' => $key,
-            'document_type' => $validated['document_type'],
+            'document_type' => $validated['document_type'] ?? null,
             'source' => 'upload',
             'ocr_status' => 'pending',
             'retention_until' => now()->addYears(10)->toDateString(),
@@ -117,7 +117,7 @@ class DocumentController extends Controller
                 'total_ht',
                 'total_vat',
                 'total_ttc',
-                'currency',
+               
                 'status',
                 'contact_id',
             ])
@@ -128,7 +128,7 @@ class DocumentController extends Controller
                 'total_ht' => (float) $e->total_ht,
                 'total_vat' => (float) $e->total_vat,
                 'total_ttc' => (float) $e->total_ttc,
-                'currency' => $e->currency,
+                
                 'status' => $e->status,
                 'contact_name' => $e->contact?->display_name,
             ]);

@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BankStatementImport extends Model
 {
+    use HasUuids;
     protected $primaryKey = 'id';
     protected $keyType = 'string';
     public $incrementing = false;
@@ -23,6 +25,12 @@ class BankStatementImport extends Model
         'closing_balance',
         'row_count',
         'imported_by',
+        'file_name',
+        'file_path',
+        'mime_type',
+        'document_id',  // for pdf_ocr flow linking to documents table
+        'status',
+        'meta',
     ];
 
     protected $casts = [
@@ -31,6 +39,7 @@ class BankStatementImport extends Model
         'opening_balance' => 'decimal:2',
         'closing_balance' => 'decimal:2',
         'row_count' => 'integer',
+        'meta'=> 'array',
     ];
 
     public function bankAccount(): BelongsTo

@@ -15,7 +15,7 @@ class InvoicePaymentService
     public function summarize(Invoice $invoice): array
     {
         $totalPaid = (float) $invoice->payments()->sum('amount');
-        $total = (float) $invoice->total_ttc;
+        $total = abs((float) $invoice->total_ttc);
         $remaining = round($total - $totalPaid, 2);
 
         $paymentStatus = $this->deriveStatus(

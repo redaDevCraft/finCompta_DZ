@@ -13,12 +13,14 @@ import {
     Send,
 } from 'lucide-react';
 
+
 const formatCurrency = (value, currency = 'DZD') =>
     new Intl.NumberFormat('fr-DZ', {
         style: 'currency',
         currency,
         minimumFractionDigits: 2,
     }).format(Number(value ?? 0));
+
 
 const formatDate = (value) => {
     if (!value) return '—';
@@ -29,6 +31,7 @@ const formatDate = (value) => {
     }).format(new Date(value));
 };
 
+
 const docTypeLabel = (type) =>
     ({
         invoice: 'Facture',
@@ -36,6 +39,7 @@ const docTypeLabel = (type) =>
         quote: 'Devis',
         delivery_note: 'Bon de livraison',
     })[type] ?? type;
+
 
 export default function Show({ invoice, paymentSummary }) {
     const { errors } = usePage().props;
@@ -49,6 +53,7 @@ export default function Show({ invoice, paymentSummary }) {
     const [actionSubmitting, setActionSubmitting] = useState(false);
     const [paymentSubmitting, setPaymentSubmitting] = useState(false);
 
+
     if (!invoice) {
         return (
             <AuthenticatedLayout header="Facture">
@@ -60,9 +65,17 @@ export default function Show({ invoice, paymentSummary }) {
         );
     }
 
+    const isCreditNote = invoice.document_type === 'credit_note';
+
+    // For credit notes all stored amounts are negative (correct accounting).
+    // Always display absolute values — the AVOIR badge carries the meaning.
+    const formatAmount = (value, currency = 'DZD') =>
+        formatCurrency(isCreditNote ? Math.abs(Number(value ?? 0)) : value, currency);
+
     const isDraft = invoice.status === 'draft';
     const canVoid = invoice.status === 'issued' || invoice.status === 'partially_paid';
     const canCredit = invoice.status === 'issued' || invoice.status === 'partially_paid' || invoice.status === 'paid';
+
 
     const issueInvoice = async () => {
         const ok = await confirm({
@@ -78,6 +91,7 @@ export default function Show({ invoice, paymentSummary }) {
         });
     };
 
+
     const voidInvoice = async () => {
         const ok = await confirm({
             title: 'Annuler la facture',
@@ -91,6 +105,7 @@ export default function Show({ invoice, paymentSummary }) {
             onFinish: () => setActionSubmitting(false),
         });
     };
+
 
     const createCredit = async () => {
         const ok = await confirm({
@@ -106,6 +121,7 @@ export default function Show({ invoice, paymentSummary }) {
         });
     };
 
+
     const recordPayment = (e) => {
         e.preventDefault();
         if (paymentSubmitting) return;
@@ -116,11 +132,13 @@ export default function Show({ invoice, paymentSummary }) {
         });
     };
 
+
     return (
         <AuthenticatedLayout
             header={`${docTypeLabel(invoice.document_type)} ${invoice.invoice_number ?? '(brouillon)'}`}
         >
             <Head title={`${docTypeLabel(invoice.document_type)} ${invoice.invoice_number ?? ''}`} />
+
 
             <div className="space-y-6">
                 <div className="flex flex-wrap items-center gap-3">
@@ -131,6 +149,7 @@ export default function Show({ invoice, paymentSummary }) {
                         <ArrowLeft className="h-4 w-4" />
                         Retour à la liste
                     </Link>
+
 
                     <div className="ml-auto flex flex-wrap items-center gap-2">
                         {isDraft && (
@@ -145,6 +164,7 @@ export default function Show({ invoice, paymentSummary }) {
                             </button>
                         )}
 
+
                         {invoice.pdf_path && (
                             <a
                                 href={`/invoices/${invoice.id}/pdf`}
@@ -157,6 +177,7 @@ export default function Show({ invoice, paymentSummary }) {
                             </a>
                         )}
 
+
                         {canCredit && invoice.document_type === 'invoice' && (
                             <button
                                 type="button"
@@ -168,6 +189,7 @@ export default function Show({ invoice, paymentSummary }) {
                                 Créer un avoir
                             </button>
                         )}
+
 
                         {canVoid && (
                             <button
@@ -183,6 +205,7 @@ export default function Show({ invoice, paymentSummary }) {
                     </div>
                 </div>
 
+
                 {errors && Object.keys(errors).length > 0 && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                         <div className="flex items-center gap-2 font-medium">
@@ -197,6 +220,7 @@ export default function Show({ invoice, paymentSummary }) {
                     </div>
                 )}
 
+
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -207,13 +231,32 @@ export default function Show({ invoice, paymentSummary }) {
                                 <h2 className="mt-1 text-2xl font-semibold text-slate-900">
                                     {invoice.invoice_number ?? 'Brouillon'}
                                 </h2>
+
+                                {/* AVOIR banner — shown only for credit notes */}
+                                {isCreditNote && (
+                                    <span className="mt-1 inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                                        AVOIR — montants à déduire de la facture d'origine
+                                    </span>
+                                )}
+
                                 <p className="mt-1 text-sm text-slate-600">
                                     Émise le {formatDate(invoice.issue_date)}
                                     {invoice.due_date ? ` · échéance ${formatDate(invoice.due_date)}` : ''}
                                 </p>
+
+                                {/* Link back to the original invoice for credit notes */}
+                                {isCreditNote && invoice.original_invoice_id && (
+                                    <Link
+                                        href={`/invoices/${invoice.original_invoice_id}`}
+                                        className="mt-1 inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                                    >
+                                        ← Voir la facture d'origine
+                                    </Link>
+                                )}
                             </div>
                             <Badge status={paymentSummary?.payment_status ?? invoice.status} />
                         </div>
+
 
                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
                             <div className="rounded-lg bg-slate-50 p-4">
@@ -239,6 +282,7 @@ export default function Show({ invoice, paymentSummary }) {
                             </div>
                         </div>
 
+
                         {invoice.notes && (
                             <div className="mt-4 rounded-lg border border-slate-200 p-4">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -251,6 +295,7 @@ export default function Show({ invoice, paymentSummary }) {
                         )}
                     </div>
 
+
                     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Totaux
@@ -259,19 +304,19 @@ export default function Show({ invoice, paymentSummary }) {
                             <div className="flex items-center justify-between">
                                 <dt className="text-slate-600">Total HT</dt>
                                 <dd className="font-medium text-slate-900">
-                                    {formatCurrency(invoice.subtotal_ht, invoice.currency)}
+                                    {formatAmount(invoice.subtotal_ht, invoice.currency)}
                                 </dd>
                             </div>
                             <div className="flex items-center justify-between">
                                 <dt className="text-slate-600">TVA</dt>
                                 <dd className="font-medium text-slate-900">
-                                    {formatCurrency(invoice.total_vat, invoice.currency)}
+                                    {formatAmount(invoice.total_vat, invoice.currency)}
                                 </dd>
                             </div>
                             <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 text-base">
                                 <dt className="font-semibold text-slate-900">Total TTC</dt>
                                 <dd className="font-bold text-slate-900">
-                                    {formatCurrency(invoice.total_ttc, invoice.currency)}
+                                    {formatAmount(invoice.total_ttc, invoice.currency)}
                                 </dd>
                             </div>
                             <div className="flex items-center justify-between">
@@ -280,16 +325,19 @@ export default function Show({ invoice, paymentSummary }) {
                                     {formatCurrency(paymentSummary?.total_paid ?? 0, invoice.currency)}
                                 </dd>
                             </div>
+                            {!isCreditNote && (
                             <div className="flex items-center justify-between">
                                 <dt className="text-slate-600">Reste à payer</dt>
                                 <dd className="font-semibold text-slate-900">
-                                    {formatCurrency(paymentSummary?.remaining ?? invoice.total_ttc, invoice.currency)}
+                                    {formatAmount(paymentSummary?.remaining ?? invoice.total_ttc, invoice.currency)}
                                 </dd>
                             </div>
+                            )}
                         </dl>
                     </div>
                 </div>
 
+                {!isCreditNote && (
                 <div className="grid gap-4 lg:grid-cols-2">
                     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                         <h3 className="text-sm font-semibold text-slate-900">Historique des paiements</h3>
@@ -371,6 +419,7 @@ export default function Show({ invoice, paymentSummary }) {
                         </form>
                     </div>
                 </div>
+                )}
 
                 <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="border-b border-slate-200 px-5 py-3">
@@ -392,19 +441,19 @@ export default function Show({ invoice, paymentSummary }) {
                                     invoice.lines.map((line) => (
                                         <tr key={line.id}>
                                             <td className="px-4 py-2 text-slate-800">
-                                                {line.description ?? '—'}
+                                                {line.designation ?? line.description ?? '—'}
                                             </td>
                                             <td className="px-4 py-2 text-right text-slate-700">
                                                 {Number(line.quantity ?? 0)}
                                             </td>
                                             <td className="px-4 py-2 text-right text-slate-700">
-                                                {formatCurrency(line.unit_price_ht, invoice.currency)}
+                                                {formatAmount(line.unit_price_ht, invoice.currency)}
                                             </td>
                                             <td className="px-4 py-2 text-right text-slate-700">
-                                                {line.vat_rate != null ? `${line.vat_rate} %` : '—'}
+                                                {line.vat_rate_pct != null ? `${line.vat_rate_pct} %` : '—'}
                                             </td>
                                             <td className="px-4 py-2 text-right font-medium text-slate-900">
-                                                {formatCurrency(line.line_total_ht, invoice.currency)}
+                                                {formatAmount(line.line_total_ht, invoice.currency)}
                                             </td>
                                         </tr>
                                     ))
@@ -422,6 +471,7 @@ export default function Show({ invoice, paymentSummary }) {
                         </table>
                     </div>
                 </div>
+
 
                 {invoice.journal_entry && (
                     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

@@ -17,6 +17,7 @@ class AiExtractionService
         $this->apiKey = (string) config('services.local_llm.api_key', 'ollama');
     }
 
+    
     public function extractExpenseFields(string $ocrText, string $companyId): array
     {
         $prompt = $this->buildExtractionPrompt($ocrText);
@@ -207,6 +208,8 @@ PROMPT;
 }
 
 
+
+
     private function parseExtractionResponse(array $resp, string $companyId): array
     {
         try {
@@ -266,5 +269,77 @@ PROMPT;
             'suggestions' => $suggestions,
         ];
     }
+    /**
+ * Classify what type of document this is before extracting fields.
+ * Returns one of: purchase_invoice, sales_invoice, bank_statement,
+ * receipt, credit_note, unknown.
+ */
+public function classifyDocument(string $ocrText): array
+{
+    $truncated = mb_substr($ocrText, 0, 1500);
+
+    $prompt = <<<PROMPT
+You are classifying an Algerian accounting document.
+
+Analyze this document text and identify what type it is.
+
+Choose EXACTLY one of these types:
+- purchase_invoice  = Facture d'achat / fournisseur (we are the buyer)
+- sales_invoice     = Facture de vente / client (we are the seller)
+- credit_note       = Avoir / Note de crédit
+- bank_statement    = Relevé bancaire / Relevé de compte
+- receipt           = Reçu / ticket de caisse / justificatif simple
+- unknown           = Cannot determine
+
+Signals to look for:
+- purchase_invoice: vendor name + our company as buyer, "Doit", "Facture N°", NIF/NIS of seller
+- sales_invoice: our company as seller, client name, "Facture client"
+- credit_note: "Avoir", "Note de crédit", "Remboursement"
+- bank_statement: "Solde", "Débit", "Crédit", multiple transaction rows, "RIB", "IBAN", bank name
+- receipt: small amount, no NIF/NIS, "Ticket", "Reçu"
+
+Return STRICTLY valid JSON:
+{
+  "document_type": "purchase_invoice|sales_invoice|credit_note|bank_statement|receipt|unknown",
+  "confidence": 0.0,
+  "signals": ["signal1", "signal2"]
+}
+
+Document text:
+{$truncated}
+PROMPT;
+
+    try {
+        $raw    = $this->ask($prompt);
+        $parsed = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+
+        return [
+            'document_type' => $parsed['document_type'] ?? 'unknown',
+            'confidence'    => (float) ($parsed['confidence'] ?? 0.0),
+            'signals'       => $parsed['signals'] ?? [],
+        ];
+    } catch (\Throwable) {
+        return ['document_type' => 'unknown', 'confidence' => 0.0, 'signals' => []];
+    }
+}
+private function ask(string $prompt): string
+{
+    $response = Http::timeout(30)
+        ->withHeaders([
+            'Authorization' => 'Bearer ' . $this->apiKey,
+            'Content-Type'  => 'application/json',
+        ])
+        ->post($this->baseUrl . '/chat/completions', [
+            'model'       => $this->model,
+            'temperature' => 0,
+            'max_tokens'  => 512,
+            'messages'    => [
+                ['role' => 'system', 'content' => 'You are a helpful assistant. Return only valid JSON.'],
+                ['role' => 'user',   'content' => $prompt],
+            ],
+        ]);
+
+    return data_get($response->json(), 'choices.0.message.content', '{}');
+}
     
 }

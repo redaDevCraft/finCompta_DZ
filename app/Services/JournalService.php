@@ -7,12 +7,51 @@ use App\Models\Company;
 use App\Models\Expense;
 use App\Models\FiscalPeriod;
 use App\Models\Invoice;
+use App\Models\Journal;
 use App\Models\JournalEntry;
 use App\Models\User;
 use Carbon\Carbon;
 
 class JournalService
 {
+    private function resolveJournal(Company $company, string $code): Journal
+    {
+        $journal = Journal::where('company_id', $company->id)
+            ->where('code', $code)
+            ->where('is_active', true)
+            ->first();
+    
+        if (! $journal) {
+            // Auto-create the system journal if it doesn't exist yet
+            $label = match($code) {
+                'VT' => 'Journal des ventes',
+                'AC' => 'Journal des achats',
+                'BQ' => 'Journal de banque',
+                'CA' => 'Journal de caisse',
+                'OD' => 'Journal des opérations diverses',
+                default => 'Journal '.$code,
+            };
+    
+            $journal = Journal::create([
+                'company_id' => $company->id,
+                'code'       => $code,
+                'label'      => $label,
+                'type'       => match($code) {
+                    'VT' => 'sale',
+                    'AC' => 'purchase',
+                    'BQ' => 'bank',
+                    'CA' => 'cash',
+                    default => 'misc',
+                },
+                'is_system'              => true,
+                'is_active'              => true,
+                'allow_auto_counterpart' => false,
+                'position'               => 0,
+            ]);
+        }
+    
+        return $journal;
+    }
     public function getOrCreatePeriod(Company $company, Carbon $date): FiscalPeriod
     {
         $period = FiscalPeriod::where('company_id', $company->id)
@@ -41,79 +80,113 @@ class JournalService
     public function draftSalesEntry(Invoice $invoice, Company $company): JournalEntry
     {
         $invoice->loadMissing(['vatBuckets', 'contact']);
-
+    
+        $isCreditNote = $invoice->document_type === 'credit_note';
+        $journal = $this->resolveJournal($company, 'VT');
+    
         $period = $this->getOrCreatePeriod($company, Carbon::parse($invoice->issue_date));
-
+    
         $entry = JournalEntry::create([
-            'company_id' => $company->id,
-            'period_id' => $period->id,
-            'entry_date' => $invoice->issue_date,
+            'company_id'   => $company->id,
+            'period_id'    => $period->id,
+            'journal_id'   => $journal->id,    
+            'entry_date'   => $invoice->issue_date,
             'journal_code' => 'VT',
-            'reference' => $invoice->invoice_number,
-            'description' => $this->buildSalesEntryDescription($invoice),
-            'status' => 'draft',
-            'source_type' => 'invoice',
-            'source_id' => $invoice->id,
-            'posted_at' => null,
-            'posted_by' => null,
+            'reference'    => $invoice->invoice_number,
+            'description'  => $this->buildSalesEntryDescription($invoice),
+            'status'       => 'draft',
+            'source_type'  => 'invoice',
+            'source_id'    => $invoice->id,
+            'posted_at'    => null,
+            'posted_by'    => null,
         ]);
-
-        $clientAccount = $this->findAccount($company, '411');
-        $revenueAccount = $this->resolveSalesRevenueAccount($invoice, $company);
+    
+        $clientAccount      = $this->findAccount($company, '411');
+        $revenueAccount     = $this->resolveSalesRevenueAccount($invoice, $company);
         $vatCollectedAccount = $this->findAccount($company, '4451');
-
+    
         $contactId = $invoice->contact_id;
-
-        $totalDebit = 0.0;
         $sortOrder = 0;
-
+    
         foreach ($invoice->vatBuckets as $bucket) {
-            $baseHt = (float) $bucket->base_ht;
-            $vatAmount = (float) $bucket->vat_amount;
-            $lineTtc = round($baseHt + $vatAmount, 2);
-
-            $entry->lines()->create([
-                'account_id' => $clientAccount->id,
-                'contact_id' => $contactId,
-                'debit' => $lineTtc,
-                'credit' => 0,
-                'description' => 'Créance client',
-                'sort_order' => $sortOrder++,
-            ]);
-
-            $entry->lines()->create([
-                'account_id' => $revenueAccount->id,
-                'contact_id' => $contactId,
-                'debit' => 0,
-                'credit' => $baseHt,
-                'description' => 'Produit HT',
-                'sort_order' => $sortOrder++,
-            ]);
-
-            if ($vatAmount > 0) {
+            // Always work with absolute (positive) amounts —
+            // credit notes store negatives, normal invoices store positives.
+            $baseHt    = abs((float) $bucket->base_ht);
+            $vatAmount = abs((float) $bucket->vat_amount);
+            $lineTtc   = round($baseHt + $vatAmount, 2);
+    
+            if ($isCreditNote) {
+                // Avoir: reverse of the original sales entry
+                // Crédit 411 (reduce receivable), Débit 701 (reverse revenue), Débit 4451 (reverse VAT)
                 $entry->lines()->create([
-                    'account_id' => $vatCollectedAccount->id,
-                    'contact_id' => $contactId,
-                    'debit' => 0,
-                    'credit' => $vatAmount,
-                    'description' => 'TVA collectée',
-                    'sort_order' => $sortOrder++,
+                    'account_id'  => $clientAccount->id,
+                    'contact_id'  => $contactId,
+                    'debit'       => 0,
+                    'credit'      => $lineTtc,
+                    'description' => 'Avoir client — annulation créance',
+                    'sort_order'  => $sortOrder++,
                 ]);
+    
+                $entry->lines()->create([
+                    'account_id'  => $revenueAccount->id,
+                    'contact_id'  => $contactId,
+                    'debit'       => $baseHt,
+                    'credit'      => 0,
+                    'description' => 'Avoir — annulation produit HT',
+                    'sort_order'  => $sortOrder++,
+                ]);
+    
+                if ($vatAmount > 0) {
+                    $entry->lines()->create([
+                        'account_id'  => $vatCollectedAccount->id,
+                        'contact_id'  => $contactId,
+                        'debit'       => $vatAmount,
+                        'credit'      => 0,
+                        'description' => 'Avoir — annulation TVA collectée',
+                        'sort_order'  => $sortOrder++,
+                    ]);
+                }
+            } else {
+                // Normal invoice entry (unchanged)
+                $entry->lines()->create([
+                    'account_id'  => $clientAccount->id,
+                    'contact_id'  => $contactId,
+                    'debit'       => $lineTtc,
+                    'credit'      => 0,
+                    'description' => 'Créance client',
+                    'sort_order'  => $sortOrder++,
+                ]);
+    
+                $entry->lines()->create([
+                    'account_id'  => $revenueAccount->id,
+                    'contact_id'  => $contactId,
+                    'debit'       => 0,
+                    'credit'      => $baseHt,
+                    'description' => 'Produit HT',
+                    'sort_order'  => $sortOrder++,
+                ]);
+    
+                if ($vatAmount > 0) {
+                    $entry->lines()->create([
+                        'account_id'  => $vatCollectedAccount->id,
+                        'contact_id'  => $contactId,
+                        'debit'       => 0,
+                        'credit'      => $vatAmount,
+                        'description' => 'TVA collectée',
+                        'sort_order'  => $sortOrder++,
+                    ]);
+                }
             }
-
-            $totalDebit += $lineTtc;
         }
-
+    
         $entry->load('lines');
-
+    
         if (! $entry->isBalanced()) {
             abort(422, 'Écriture comptable déséquilibrée');
         }
-
-        $invoice->update([
-            'journal_entry_id' => $entry->id,
-        ]);
-
+    
+        $invoice->update(['journal_entry_id' => $entry->id]);
+    
         return $entry->fresh('lines');
     }
 
@@ -121,12 +194,15 @@ class JournalService
     {
         $expense->loadMissing('lines');
         $expense->loadMissing('contact');
+        $journal = $this->resolveJournal($company, 'AC');
+        
 
         $period = $this->getOrCreatePeriod($company, Carbon::parse($expense->expense_date));
 
         $entry = JournalEntry::create([
             'company_id' => $company->id,
             'period_id' => $period->id,
+            'journal_id'   => $journal->id,
             'entry_date' => $expense->expense_date,
             'journal_code' => 'AC',
             'reference' => $expense->reference,
@@ -260,6 +336,7 @@ class JournalService
     public function reverseEntry(JournalEntry $original, Company $company, User $user, ?Carbon $date = null, ?string $reason = null): JournalEntry
     {
         $original->loadMissing('lines');
+        $journal = $this->resolveJournal($company, $original->journal_code); 
 
         $reverseDate = $date ?? Carbon::now();
         $period = $this->getOrCreatePeriod($company, $reverseDate);
@@ -267,6 +344,7 @@ class JournalService
         $reversal = JournalEntry::create([
             'company_id' => $company->id,
             'period_id' => $period->id,
+            'journal_id'   => $journal->id,
             'entry_date' => $reverseDate->toDateString(),
             'journal_code' => $original->journal_code,
             'reference' => 'EXTOURNE — '.($original->reference ?? $original->id),
@@ -332,16 +410,13 @@ class JournalService
     }
 
     private function buildSalesEntryDescription(Invoice $invoice): string
-    {
-        $base = 'Facture client '.($invoice->invoice_number ?? $invoice->id);
-        $contactName = trim((string) ($invoice->contact?->display_name ?? ''));
+{
+    $prefix = $invoice->document_type === 'credit_note' ? 'Avoir client ' : 'Facture client ';
+    $base = $prefix . ($invoice->invoice_number ?? $invoice->id);
+    $contactName = trim((string) ($invoice->contact?->display_name ?? ''));
 
-        if ($contactName === '') {
-            return $base;
-        }
-
-        return $base.' — '.$contactName;
-    }
+    return $contactName !== '' ? $base . ' — ' . $contactName : $base;
+}
 
     private function buildPurchaseEntryDescription(Expense $expense): string
     {

@@ -342,6 +342,9 @@ Route::middleware(['auth', 'verified', 'company', 'subscribed','plan_feature:ai_
     Route::post('/bank/import', [BankController::class, 'import'])
         ->middleware('role:owner,accountant')
         ->name('bank.import');
+    Route::get('/bank/import', [BankController::class, 'showImport'])
+        ->middleware('role:owner,accountant')
+        ->name('bank.import.show');
 
     Route::post('/bank/import/confirm', [BankController::class, 'confirmImport'])
         ->middleware('role:owner,accountant')

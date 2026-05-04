@@ -129,46 +129,48 @@ class ComplianceEngine
      * @return string[]
      */
     public function validateInvoiceForIssuance(Invoice $invoice, Company $company): array
-    {
-        $errors = [];
+{
+    $errors = [];
+    $isCreditNote = $invoice->document_type === 'credit_note';
 
-        if ($invoice->lines->isEmpty()) {
-            $errors[] = 'La facture doit contenir au moins une ligne.';
-        }
-
-        foreach ($invoice->lines as $index => $line) {
-            if (empty($line->designation)) {
-                $errors[] = sprintf('La ligne %d n\'a pas de désignation.', $index + 1);
-            }
-
-            if ((float) $line->quantity <= 0) {
-                $errors[] = sprintf('La ligne %d a une quantité invalide.', $index + 1);
-            }
-
-            if ((float) $line->unit_price_ht < 0) {
-                $errors[] = sprintf('La ligne %d a un prix unitaire négatif.', $index + 1);
-            }
-        }
-
-        if ($invoice->contact_id === null) {
-            $errors[] = 'La facture doit être associée à un client.';
-        }
-
-        if (empty($invoice->issue_date)) {
-            $errors[] = 'La date d\'émission est obligatoire.';
-        }
-
-        if ((float) $invoice->total_ttc < 0) {
-            $errors[] = 'Le montant total TTC ne peut pas être négatif.';
-        }
-
-        // SCF compliance: company must have NIF for VAT invoices
-        if ($company->vat_registered && empty($company->nif)) {
-            $errors[] = 'Le NIF de l\'entreprise est requis pour émettre une facture TVA.';
-        }
-
-        return $errors;
+    if ($invoice->lines->isEmpty()) {
+        $errors[] = 'La facture doit contenir au moins une ligne.';
     }
+
+    foreach ($invoice->lines as $index => $line) {
+        if (empty($line->designation)) {
+            $errors[] = sprintf('La ligne %d n\'a pas de désignation.', $index + 1);
+        }
+
+        if ((float) $line->quantity <= 0) {
+            $errors[] = sprintf('La ligne %d a une quantité invalide.', $index + 1);
+        }
+
+        // Credit notes legitimately have negative unit prices — skip this check
+        if (! $isCreditNote && (float) $line->unit_price_ht < 0) {
+            $errors[] = sprintf('La ligne %d a un prix unitaire négatif.', $index + 1);
+        }
+    }
+
+    if ($invoice->contact_id === null) {
+        $errors[] = 'La facture doit être associée à un client.';
+    }
+
+    if (empty($invoice->issue_date)) {
+        $errors[] = 'La date d\'émission est obligatoire.';
+    }
+
+    // Credit notes legitimately have a negative total_ttc — skip this check
+    if (! $isCreditNote && (float) $invoice->total_ttc < 0) {
+        $errors[] = 'Le montant total TTC ne peut pas être négatif.';
+    }
+
+    if ($company->vat_registered && empty($company->nif)) {
+        $errors[] = 'Le NIF de l\'entreprise est requis pour émettre une facture TVA.';
+    }
+
+    return $errors;
+}
 
     /**
      * Soft warnings — issuance proceeds but warnings are shown to the user.
@@ -176,26 +178,27 @@ class ComplianceEngine
      * @return string[]
      */
     public function warnInvoiceForIssuance(Invoice $invoice): array
-    {
-        $warnings = [];
+{
+    $warnings = [];
+    $isCreditNote = $invoice->document_type === 'credit_note';
 
-        if ($invoice->due_date === null) {
-            $warnings[] = 'Aucune date d\'échéance définie.';
-        }
-
-        if ($invoice->due_date && $invoice->due_date->lt($invoice->issue_date)) {
-            $warnings[] = 'La date d\'échéance est antérieure à la date d\'émission.';
-        }
-
-        if (empty($invoice->payment_mode)) {
-            $warnings[] = 'Le mode de paiement n\'est pas renseigné.';
-        }
-
-        if ($invoice->lines->every(fn($l) => (float) $l->vat_rate_pct === 0.0)) {
-            $warnings[] = 'Aucune ligne n\'est soumise à la TVA. Vérifiez l\'exonération.';
-        }
-
-        return $warnings;
+    if (! $isCreditNote && $invoice->due_date === null) {
+        $warnings[] = 'Aucune date d\'échéance définie.';
     }
+
+    if ($invoice->due_date && $invoice->due_date->lt($invoice->issue_date)) {
+        $warnings[] = 'La date d\'échéance est antérieure à la date d\'émission.';
+    }
+
+    if (empty($invoice->payment_mode)) {
+        $warnings[] = 'Le mode de paiement n\'est pas renseigné.';
+    }
+
+    if (! $isCreditNote && $invoice->lines->every(fn($l) => (float) $l->vat_rate_pct === 0.0)) {
+        $warnings[] = 'Aucune ligne n\'est soumise à la TVA. Vérifiez l\'exonération.';
+    }
+
+    return $warnings;
+}
 }
 

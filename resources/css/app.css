@@ -43,24 +43,20 @@
 
 @layer components {
     .sticky-back-button {
-        @apply fixed bottom-4 right-4 z-[70] inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg transition-all hover: -translate-y-0.5 hover:bg-slate-50 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 sm:bottom-6 sm:right-6;
+        @apply fixed bottom-4 right-4 z-[70] inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg transition-all;
     }
 
-    .app-content :where(.overflow-x-auto > table) {
-        width: 100% !important;
-        min-width: 0 !important;
-        table-layout: fixed;
+    @screen sm {
+        .sticky-back-button {
+            @apply bottom-6 right-6;
+        }
     }
 
-    .app-content :where(table th, table td) {
-        white-space: normal !important;
-        overflow-wrap: anywhere;
-        word-break: break-word;
+    .sticky-back-button:hover {
+        @apply -translate-y-0.5 bg-slate-50 text-slate-900;
     }
-}
 
-@layer utilities {
-    .saas-surface {
-        @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+    .sticky-back-button:focus-visible {
+        @apply ring-2 ring-indigo-500 ring-offset-2;
     }
 }

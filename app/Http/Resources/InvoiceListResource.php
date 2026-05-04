@@ -22,47 +22,53 @@ final class InvoiceListResource extends JsonResource
     public static $wrap = null;
 
     public function toArray(Request $request): array
-    {
-        /** @var Invoice $invoice */
-        $invoice = $this->resource;
-        $total = (float) $invoice->total_ttc;
-        $totalPaid = (float) ($invoice->total_paid_amount ?? 0);
-        $remaining = round($total - $totalPaid, 2);
+{
+    /** @var Invoice $invoice */
+    $invoice = $this->resource;
+    $isCreditNote = $invoice->document_type === 'credit_note';
 
-        $paymentStatus = $invoice->status;
-        if (! in_array($invoice->status, ['draft', 'voided', 'replaced', 'paid'], true)) {
-            if ($remaining <= 0.00001) {
-                $paymentStatus = 'paid';
-            } elseif ($totalPaid > 0.00001) {
-                $paymentStatus = 'partially_paid';
-            } elseif ($invoice->due_date && $invoice->due_date->isPast()) {
-                $paymentStatus = 'overdue';
-            } else {
-                $paymentStatus = 'unpaid';
-            }
+    // Credit notes store negative totals internally — always display abs values
+    $total     = abs((float) $invoice->total_ttc);
+    $totalHt   = abs((float) $invoice->subtotal_ht);
+    $totalPaid = (float) ($invoice->total_paid_amount ?? 0);
+    $remaining = round($total - $totalPaid, 2);
+
+    $paymentStatus = $invoice->status;
+
+    // Credit notes don't have a "payment" lifecycle — treat them like their DB status
+    if (! $isCreditNote && ! in_array($invoice->status, ['draft', 'voided', 'replaced', 'paid'], true)) {
+        if ($remaining <= 0.00001) {
+            $paymentStatus = 'paid';
+        } elseif ($totalPaid > 0.00001) {
+            $paymentStatus = 'partially_paid';
+        } elseif ($invoice->due_date && $invoice->due_date->isPast()) {
+            $paymentStatus = 'overdue';
+        } else {
+            $paymentStatus = 'unpaid';
         }
-
-        return [
-            'id' => $invoice->id,
-            'invoice_number' => $invoice->invoice_number,
-            'document_type' => $invoice->document_type,
-            'status' => $invoice->status,
-            'issue_date' => optional($invoice->issue_date)->toDateString(),
-            'created_at' => optional($invoice->created_at)->toDateTimeString(),
-            'due_date' => optional($invoice->due_date)->toDateString(),
-            'subtotal_ht' => (float) $invoice->subtotal_ht,
-            'total_ttc' => (float) $invoice->total_ttc,
-            'total_paid' => $totalPaid,
-            'remaining' => $remaining,
-            'payment_status' => $paymentStatus,
-            'currency' => $invoice->currency,
-            'has_pdf' => ! empty($invoice->pdf_path),
-            'contact' => $invoice->relationLoaded('contact') && $invoice->contact
-                ? [
-                    'id' => $invoice->contact->id,
-                    'display_name' => $invoice->contact->display_name,
-                ]
-                : null,
-        ];
     }
+
+    return [
+        'id'             => $invoice->id,
+        'invoice_number' => $invoice->invoice_number,
+        'document_type'  => $invoice->document_type,
+        'status'         => $invoice->status,
+        'issue_date'     => optional($invoice->issue_date)->toDateString(),
+        'created_at'     => optional($invoice->created_at)->toDateTimeString(),
+        'due_date'       => optional($invoice->due_date)->toDateString(),
+        'subtotal_ht'    => $totalHt,       // ← abs() applied
+        'total_ttc'      => $total,         // ← abs() applied
+        'total_paid'     => $totalPaid,
+        'remaining'      => $remaining,
+        'payment_status' => $paymentStatus,
+        'currency'       => $invoice->currency,
+        'has_pdf'        => ! empty($invoice->pdf_path),
+        'contact'        => $invoice->relationLoaded('contact') && $invoice->contact
+            ? [
+                'id'           => $invoice->contact->id,
+                'display_name' => $invoice->contact->display_name,
+            ]
+            : null,
+    ];
+}
 }

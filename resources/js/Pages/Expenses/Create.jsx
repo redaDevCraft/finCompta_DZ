@@ -240,18 +240,35 @@ export default function Create({
                                     onChange={(e) => setData('expense_account_id', e.target.value)}
                                     className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                                 >
-                                    {accountOptions.map((account) => {
-                                        const isDefault = account.code === "601";
-                                        return (
-                                            <option
-                                                key={account.id}
-                                                value={account.id}
-                                            >
-                                                {account.code} — {account.label}
-                                                {isDefault ? " (par défaut)" : ""}
-                                            </option>
-                                        );
-                                    })}
+                                    {/* If no account selected and "601" exists, auto-set to that */}
+                                    {(() => {
+                                        if (
+                                            !data.expense_account_id &&
+                                            accountOptions.find((account) => account.code === "601")
+                                        ) {
+                                            setTimeout(() => {
+                                                const defaultAccount = accountOptions.find((account) => account.code === "601");
+                                                if (defaultAccount) {
+                                                    setData('expense_account_id', defaultAccount.id);
+                                                }
+                                            }, 0);
+                                        }
+                                    })()}
+                           
+                                    {/* 
+                                        If no compte de charge was selected, preselect "601" as default
+                                        by setting data.expense_account_id when the form is mounted 
+                                    */}
+                                    {accountOptions.map((account, i) => (
+                                        <option
+                                            key={account.id}
+                                            value={account.id}
+                                        >
+                                            {account.code} — {account.label}
+                                            {account.code === "601" ? " (par défaut)" : ""}
+                                        </option>
+                                    ))}
+                               
                                
 
                                 </select>

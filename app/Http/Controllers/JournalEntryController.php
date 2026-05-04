@@ -564,17 +564,20 @@ class JournalEntryController extends Controller
 
     private function authorizeEntry(JournalEntry $entry): void
     {
+        abort_unless($entry->company_id === app('currentCompany')->id, 404);
+    
         $journal = Journal::withoutGlobalScopes()
             ->where('company_id', app('currentCompany')->id)
             ->where('id', $entry->journal_id)
             ->first();
-
+    
+        abort_if(! $journal, 404, 'Journal introuvable pour cette écriture.'); // ← clear 404
+    
         abort_unless(
-            $entry->company_id === app('currentCompany')->id
-                && $journal
-                && $this->journalPermissionService->canView(request()->user(), $journal),
+            $this->journalPermissionService->canView(request()->user(), $journal),
             403,
             'Accès non autorisé à cette écriture.'
         );
     }
+
 }

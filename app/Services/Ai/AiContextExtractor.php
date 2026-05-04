@@ -307,4 +307,4 @@ class AiContextExtractor
             'active_rates'               => $activeRates,
         ];
     }
-}
+    }

@@ -77,6 +77,7 @@ TXT;
 
         $r = $parser->parse($text);
 
-        $this->assertSame('supplier_invoice', $r['document_kind']);
+        $this->assertSame('purchase_invoice', $r['document_kind']);
+
     }
 }

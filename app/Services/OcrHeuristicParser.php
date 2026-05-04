@@ -1041,44 +1041,275 @@ class OcrHeuristicParser
         return array_values(array_unique($hints));
     }
 
-    private function inferDocumentKind(string $normalized): ?string
-    {
-        $supplierScore = 0;
-        $customerScore = 0;
+  /**
+ * Detect document kind from OCR text.
+ *
+ * Supported values:
+ *   bank_statement     — Relevé bancaire
+ *   purchase_invoice   — Facture achat / fournisseur
+ *   sales_invoice      — Facture vente / client
+ *   credit_note        — Avoir / note de crédit
+ *   receipt            — Reçu / ticket de caisse / bordereau
+ *   other              — Cannot classify
+ *
+ * Strategy:
+ *   1. Each type scores independently.
+ *   2. Structural regex patterns (debit/credit columns, IBAN, avoir ref...) add bonus weight.
+ *   3. The highest score wins IF it passes its minimum threshold.
+ *   4. Ties broken by priority order: bank > credit_note > receipt > purchase > sales.
+ */
+/**
+ * Detect document kind from normalized OCR text.
+ *
+ * Returned values (aligned with frontend TYPE_ACTIONS):
+ *   bank_statement   — Relevé / extrait bancaire
+ *   credit_note      — Avoir / note de crédit
+ *   receipt          — Reçu / ticket de caisse / quittance
+ *   purchase_invoice — Facture achat / fournisseur
+ *   sales_invoice    — Facture vente / client
+ *   null             — Cannot classify with confidence
+ *
+ * Scoring rules:
+ *   - Only EXCLUSIVE or HIGHLY SPECIFIC keywords score points.
+ *   - Generic words (achat, vente, livraison) do NOT score alone.
+ *   - Each type has a MINIMUM threshold it must exceed.
+ *   - Structural regex patterns (IBAN, negative total, debit+credit cols) add heavy weight.
+ *   - Negative signals SUBTRACT from competing types.
+ *   - Ties broken by priority: bank > credit_note > receipt > purchase > sales.
+ */
+private function inferDocumentKind(string $normalized): ?string
+{
+    $scores = [
+        'bank_statement'   => 0,
+        'credit_note'      => 0,
+        'receipt'          => 0,
+        'purchase_invoice' => 0,
+        'sales_invoice'    => 0,
+    ];
 
-        foreach ([
-            'fournisseur', 'achat', 'achats', 'charge', 'facture achat',
-            'bon de reception', 'bon de réception', 'توريد', 'مورد', 'مشتريات',
-            'شراء', 'وصل شراء', 'فاتورة شراء', 'مشتريات المواد',
-        ] as $kw) {
-            if ($this->strContainsCi($normalized, $kw)) {
-                $supplierScore++;
-            }
+    // ── BANK STATEMENT ─────────────────────────────────────────────────────
+    // Only terms that appear EXCLUSIVELY on bank statements
+
+    $bankKeywords = [
+        // French — very specific (3 pts)
+        'releve de compte'       => 3, 'releve bancaire'         => 3,
+        'extrait de compte'      => 3, 'extrait bancaire'        => 3,
+        'solde initial'          => 3, 'solde final'             => 3,
+        'solde de cloture'       => 3, 'solde de depart'         => 3,
+        'solde crediteur'        => 3, 'solde debiteur'          => 3,
+        'date valeur'            => 3, 'date operation'          => 3,
+        'numero de compte'       => 2, 'n  de compte'            => 2,
+        'libelle operation'      => 3, 'tableau des mouvements'  => 3,
+        // Algerian bank names (2 pts — only meaningful if other signals present)
+        'bna '                   => 2, 'credit populaire'        => 2,
+        'banque nationale'       => 2, 'badr '                   => 2,
+        'bdl '                   => 2, 'cnep '                   => 2,
+        'al baraka bank'         => 2, 'gulf bank algerie'       => 2,
+        // Arabic — very specific (3 pts)
+        'كشف حساب'               => 3, 'كشف الحساب'              => 3,
+        'مستخرج الحساب'          => 3, 'مستخرج حساب'             => 3,
+        'رصيد ابتدائي'           => 3, 'رصيد ختامي'              => 3,
+        'رصيد دائن'              => 3, 'رصيد مدين'               => 3,
+        'تاريخ القيمة'           => 3, 'تاريخ العملية'           => 3,
+        'رقم الحساب'             => 2, 'رقم الايبان'             => 3,
+        'حركات الحساب'           => 3, 'جدول الحركات'            => 3,
+        'بنك الجزائر'            => 2, 'القرض الشعبي'            => 2,
+        'البنك الوطني الجزائري'  => 2,
+    ];
+
+    foreach ($bankKeywords as $kw => $pts) {
+        if ($this->strContainsCi($normalized, $kw)) {
+            $scores['bank_statement'] += $pts;
         }
-
-        foreach ([
-            'vente', 'ventes', 'client', 'facture client', 'devis client',
-            'مبيعات', 'زبون', 'عميل', 'فاتورة بيع',
-        ] as $kw) {
-            if ($this->strContainsCi($normalized, $kw)) {
-                $customerScore++;
-            }
-        }
-
-        if ($customerScore >= 2 && $customerScore > $supplierScore) {
-            return 'customer_invoice';
-        }
-
-        if ($supplierScore >= 2 && $supplierScore > $customerScore) {
-            return 'supplier_invoice';
-        }
-
-        if ($supplierScore >= 1 && $customerScore === 0) {
-            return 'supplier_invoice';
-        }
-
-        return null;
     }
+
+    // Structural signals — extremely strong
+    if (preg_match('/(?:d[e]bit|مدين).{0,150}(?:cr[e]dit|دائن)/isu', $normalized)) {
+        $scores['bank_statement'] += 5; // debit + credit column headers = bank statement
+    }
+    if (preg_match('/\bDZ\d{22}\b/i', $normalized)) {
+        $scores['bank_statement'] += 6; // Algerian IBAN — almost certain
+    }
+    if (preg_match('/\b\d{20}\b/', $normalized)) {
+        $scores['bank_statement'] += 3; // 20-digit RIB
+    }
+    if (preg_match('/\bIBAN\b/i', $normalized)) {
+        $scores['bank_statement'] += 4;
+    }
+    if (preg_match('/\bRIB\b/i', $normalized)) {
+        $scores['bank_statement'] += 3;
+    }
+
+    // ── CREDIT NOTE (AVOIR) ────────────────────────────────────────────────
+    // Must have explicit "avoir" word or credit note reference
+
+    $creditKeywords = [
+        // French — very specific (4 pts)
+        'avoir'                  => 4, 'note de credit'          => 4,
+        'facture d avoir'        => 4, 'bon d avoir'             => 4,
+        'n  avoir'               => 4, 'avoir n '                => 4,
+        'retour marchandise'     => 3, 'annulation facture'      => 3,
+        'facture rectificative'  => 3, 'facture annulation'      => 3,
+        'remboursement'          => 2,
+        // Arabic — very specific (4 pts)
+        'اشعار دائن'             => 4, 'اشعار بالدائن'           => 4,
+        'اشعار مدين'             => 4, 'فاتورة تصحيحية'          => 4,
+        'فاتورة عكسية'           => 4, 'فاتورة الغاء'            => 4,
+        'اعادة بضاعة'            => 3, 'ارجاع بضاعة'             => 3,
+        'استرداد'                => 2,
+    ];
+
+    foreach ($creditKeywords as $kw => $pts) {
+        if ($this->strContainsCi($normalized, $kw)) {
+            $scores['credit_note'] += $pts;
+        }
+    }
+
+    // "Avoir" as a standalone title line = very strong
+    if (preg_match('/^\s*avoir\s*$/mu', $normalized)) {
+        $scores['credit_note'] += 5;
+    }
+    // Negative total amount
+    if (preg_match('/[-−]\s*\d[\d\s]*[,\.]\d{2}\s*(?:dzd|da\b|دج)/iu', $normalized)) {
+        $scores['credit_note'] += 3;
+    }
+
+    // ── RECEIPT / TICKET ───────────────────────────────────────────────────
+    // Must have explicit receipt vocabulary — NOT just "caisse" alone
+
+    $receiptKeywords = [
+        // French — very specific (3 pts)
+        'ticket de caisse'       => 3, 'recu de paiement'        => 3,
+        'recu de caisse'         => 3, 'bordereau de caisse'     => 3,
+        'bon de caisse'          => 3, 'quittance de paiement'   => 3,
+        'recu fiscal'            => 3, 'recu de versement'       => 3,
+        'conservez ce ticket'    => 4, 'merci de votre visite'   => 4,
+        'merci pour votre achat' => 4,
+        // French — regular (2 pts)
+        'quittance'              => 2, 'encaissement'            => 2,
+        // Arabic — very specific (3 pts)
+        'وصل الصندوق'            => 3, 'وصل دفع'                 => 3,
+        'وصل قبض'                => 3, 'ايصال دفع'               => 3,
+        'ايصال قبض'              => 3, 'سند قبض'                 => 3,
+        'سند صرف'                => 3, 'تذكرة الصندوق'           => 3,
+        'شكرا لزيارتكم'          => 4,
+        // Arabic — regular (2 pts)
+        'تحصيل الدفع'            => 2,
+    ];
+
+    foreach ($receiptKeywords as $kw => $pts) {
+        if ($this->strContainsCi($normalized, $kw)) {
+            $scores['receipt'] += $pts;
+        }
+    }
+
+    // ── PURCHASE INVOICE ───────────────────────────────────────────────────
+    // ONLY score on EXPLICIT purchase invoice markers — not generic words
+
+    $purchaseKeywords = [
+        // French — very specific (3 pts)
+        'facture fournisseur'    => 3, 'facture achat'           => 3,
+        'facture d achat'        => 3, 'bon de commande achat'   => 3,
+        'bon de reception'       => 3, 'fiche de reception'      => 3,
+        // French — moderately specific (2 pts)
+        'votre fournisseur'      => 2, 'notre fournisseur'       => 2,
+        // Arabic — very specific (3 pts)
+        'فاتورة توريد'           => 3, 'فاتورة شراء'             => 3,
+        'وصل استلام'             => 3, 'امر شراء'                => 3,
+        'طلب شراء'               => 3, 'اذن استلام'              => 3,
+        // Arabic — moderately specific (2 pts)
+        'المورد'                 => 2, 'اسم المورد'              => 2,
+    ];
+
+    foreach ($purchaseKeywords as $kw => $pts) {
+        if ($this->strContainsCi($normalized, $kw)) {
+            $scores['purchase_invoice'] += $pts;
+        }
+    }
+
+    // Fiscal IDs (NIF/NIS/RC) = formal invoice, slight boost shared with sales
+    if (preg_match('/n\.?i\.?[fs]\s*[:\-]?\s*\d/iu', $normalized) ||
+        preg_match('/رقم التعريف الجبائي/iu', $normalized)) {
+        $scores['purchase_invoice'] += 1;
+        $scores['sales_invoice']    += 1;
+    }
+
+    // ── SALES INVOICE ──────────────────────────────────────────────────────
+
+    $salesKeywords = [
+        // French — very specific (3 pts)
+        'facture client'         => 3, 'facture de vente'        => 3,
+        'facture pro forma'      => 3, 'proforma'                => 3,
+        'devis'                  => 3, 'bon de livraison client' => 3,
+        'votre commande'         => 2, 'notre client'            => 2,
+        // Arabic — very specific (3 pts)
+        'فاتورة بيع'             => 3, 'فاتورة عميل'             => 3,
+        'عرض سعر'                => 3, 'امر تسليم'               => 3,
+        'وصل تسليم'              => 3,
+        // Arabic — moderately specific (2 pts)
+        'العميل'                 => 2, 'اسم العميل'              => 2,
+        'الزبون'                 => 2,
+    ];
+
+    foreach ($salesKeywords as $kw => $pts) {
+        if ($this->strContainsCi($normalized, $kw)) {
+            $scores['sales_invoice'] += $pts;
+        }
+    }
+
+    // ── NEGATIVE SIGNALS (subtract from wrong types) ───────────────────────
+
+    // If document has IBAN/RIB/solde → strongly NOT an invoice
+    if ($scores['bank_statement'] >= 4) {
+        $scores['purchase_invoice'] = max(0, $scores['purchase_invoice'] - 4);
+        $scores['sales_invoice']    = max(0, $scores['sales_invoice'] - 4);
+        $scores['receipt']          = max(0, $scores['receipt'] - 2);
+    }
+
+    // If document has avoir keyword → NOT a regular invoice
+    if ($scores['credit_note'] >= 4) {
+        $scores['purchase_invoice'] = max(0, $scores['purchase_invoice'] - 3);
+        $scores['sales_invoice']    = max(0, $scores['sales_invoice'] - 3);
+    }
+
+    // If document has receipt/ticket keywords → NOT a formal invoice
+    if ($scores['receipt'] >= 3) {
+        $scores['purchase_invoice'] = max(0, $scores['purchase_invoice'] - 2);
+        $scores['sales_invoice']    = max(0, $scores['sales_invoice'] - 2);
+    }
+
+    // ── WINNER SELECTION ───────────────────────────────────────────────────
+
+    // High thresholds prevent false positives
+    $thresholds = [
+        'bank_statement'   => 5,  // needs multiple exclusive signals
+        'credit_note'      => 4,  // needs explicit "avoir" word
+        'receipt'          => 3,  // needs explicit receipt vocabulary
+        'purchase_invoice' => 3,  // needs explicit "facture fournisseur/achat" etc
+        'sales_invoice'    => 3,  // needs explicit "facture client/vente" etc
+    ];
+
+    $qualified = array_filter(
+        $scores,
+        fn($score, $type) => $score >= $thresholds[$type],
+        ARRAY_FILTER_USE_BOTH
+    );
+
+    if (empty($qualified)) {
+        return null; // not enough evidence — let user choose manually
+    }
+
+    $maxScore = max($qualified);
+
+    // Priority order breaks ties
+    foreach (['bank_statement', 'credit_note', 'receipt', 'purchase_invoice', 'sales_invoice'] as $type) {
+        if (isset($qualified[$type]) && $qualified[$type] === $maxScore) {
+            return $type;
+        }
+    }
+
+    return null;
+}
 
     private function guessIdentifier(string $normalized, string $type): ?string
     {

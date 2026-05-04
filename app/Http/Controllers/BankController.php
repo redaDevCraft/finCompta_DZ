@@ -49,10 +49,13 @@ class BankController extends Controller
     {
         $validated = $request->validate([
             'bank_account_id' => ['required', 'uuid'],
-            'file' => ['required', 'file', 'mimes:csv,xlsx,pdf', 'max:10240'],
-            'import_type' => ['required', 'in:csv,excel,pdf_ocr'],
+            
+           
             'period_start' => ['nullable', 'date'],
             'period_end' => ['nullable', 'date'],
+            'import_type' => ['required', 'in:csv,excel,pdf_ocr,image_ocr'],
+            'file'        => ['required', 'file', 'max:20480',
+            'mimes:csv,xlsx,xls,pdf,png,jpg,jpeg,webp,heic,tiff,bmp'],
         ]);
 
         $companyId = app('currentCompany')->id;
@@ -63,45 +66,50 @@ class BankController extends Controller
 
         $storedPath = $request->file('file')->store("bank-imports/{$companyId}", 'local');
 
+       
         $import = BankStatementImport::query()->create([
-            'id' => (string) Str::uuid(),
-            'company_id' => $companyId,
-            'bank_account_id' => $bankAccount->id,
-            'import_type' => $validated['import_type'],
-            'file_name' => $request->file('file')->getClientOriginalName(),
-            'file_path' => $storedPath,
-            'mime_type' => $request->file('file')->getMimeType(),
-            'period_start' => $validated['period_start'] ?? null,
-            'period_end' => $validated['period_end'] ?? null,
-            'row_count' => 0,
-            'status' => 'uploaded',
-            'meta' => null,
+            'id'                   => (string) Str::uuid(),
+            'company_id'           => $companyId,
+            'bank_account_id'      => $bankAccount->id,
+            'import_type'          => $validated['import_type'],
+            'source_document_path' => $storedPath,
+            'period_start'         => $validated['period_start'] ?? now()->startOfMonth()->toDateString(),
+            'period_end'           => $validated['period_end']   ?? now()->toDateString(),
+            'row_count'            => 0,
+            'imported_by'          => $request->user()->id,
         ]);
 
-        if ($validated['import_type'] === 'pdf_ocr') {
+        if (in_array($validated['import_type'], ['pdf_ocr', 'image_ocr'])) {
+
+            $file = $request->file('file');
+        
             $document = Document::query()->create([
-                'id' => (string) Str::uuid(),
-                'company_id' => $companyId,
-                'document_type' => 'bank_statement',
-                'original_name' => $request->file('file')->getClientOriginalName(),
-                'mime_type' => $request->file('file')->getMimeType(),
-                'storage_disk' => 'local',
-                'storage_key' => $storedPath,
-                'ocr_status' => 'queued',
+                'id'              => (string) Str::uuid(),
+                'company_id'      => $companyId,
+                'document_type'   => 'bank_statement',
+                'file_name'       => $file->getClientOriginalName(), 
+                'file_size_bytes' => $file->getSize(),             
+                'mime_type'       => $file->getMimeType(),
+                'storage_disk'    => 'local',
+                'storage_key'     => $storedPath,
+                'source'          => 'upload',
+                'ocr_status'      => 'pending',
                 'retention_until' => now()->addYears(10),
             ]);
-
+        
             $import->update([
                 'document_id' => $document->id,
-                'status' => 'processing',
+                // 'status'      => 'processing',
             ]);
-
+        
             ProcessDocumentOcr::dispatch($document->id)->afterCommit();
-
+        
             return response()->json([
                 'import_id' => $import->id,
-                'status' => 'processing',
-                'message' => 'Le relevé PDF a été envoyé pour extraction OCR.',
+                'status'    => 'uploaded',
+                'message'   => $validated['import_type'] === 'pdf_ocr'
+                    ? 'Le relevé PDF a été envoyé pour extraction OCR.'
+                    : 'L\'image a été envoyée pour extraction OCR.',
             ]);
         }
 
@@ -128,6 +136,31 @@ class BankController extends Controller
             'suggested_mapping' => $mapping,
         ]);
     }
+
+    public function showImport(Request $request): Response
+{
+    $companyId = app('currentCompany')->id;
+
+    $bankAccounts = BankAccount::query()
+        ->where('company_id', $companyId)
+        ->where('is_active', true)
+        ->with('glAccount:id,code,label')
+        ->orderBy('bank_name')
+        ->get(['id', 'bank_name', 'account_number', 'currency']);
+
+    $fromDocument = null;
+    if ($request->filled('from_document')) {
+        $fromDocument = Document::query()
+            ->where('company_id', $companyId)
+            ->where('id', $request->from_document)
+            ->first(['id', 'file_name', 'ocr_parsed_hints', 'ocr_status']);
+    }
+
+    return Inertia::render('Bank/Import', [
+        'bankAccounts'  => $bankAccounts,
+        'fromDocument'  => $fromDocument,
+    ]);
+}
 
     public function confirmImport(Request $request): RedirectResponse
     {
@@ -204,17 +237,7 @@ class BankController extends Controller
 
             $import->update([
                 'row_count' => $rowCount,
-                'status' => 'imported',
-                'meta' => array_merge($import->meta ?? [], [
-                    'warnings' => $warnings,
-                    'confirmed_mapping' => [
-                        'date' => $validated['date_column'],
-                        'label' => $validated['label_column'],
-                        'debit' => $validated['debit_column'],
-                        'credit' => $validated['credit_column'],
-                        'balance' => $validated['balance_column'] ?? null,
-                    ],
-                ]),
+                
             ]);
         });
 
