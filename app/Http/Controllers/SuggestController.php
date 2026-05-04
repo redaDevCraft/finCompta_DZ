@@ -53,11 +53,11 @@ class SuggestController extends Controller
                 'default_tax_rate_id',
             ])
             ->where(function ($builder) use ($q) {
-                // Anchored prefix match first (hits the index), then a
-                // fallback containing-match for the tail of the query.
                 $builder
-                    ->where('display_name', 'ilike', $q.'%')
-                    ->orWhere('email', 'ilike', $q.'%');
+                    ->where('display_name', 'like', '%'.$q.'%')        // % on BOTH sides
+                    ->orWhere('raison_sociale', 'like', '%'.$q.'%')
+                    ->orWhere('email', 'like', '%'.$q.'%')
+                    ->orWhere('nif', 'like', '%'.$q.'%');
             })
             ->orderBy('display_name')
             ->limit($limit);

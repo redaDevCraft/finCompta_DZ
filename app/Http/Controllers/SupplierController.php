@@ -36,12 +36,12 @@ class SupplierController extends Controller
 
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
-                $q->where('display_name', 'ilike', "%{$search}%")
-                    ->orWhere('raison_sociale', 'ilike', "%{$search}%")
-                    ->orWhere('nif', 'ilike', "%{$search}%")
-                    ->orWhere('rc', 'ilike', "%{$search}%")
-                    ->orWhere('email', 'ilike', "%{$search}%")
-                    ->orWhere('phone', 'ilike', "%{$search}%");
+                $q->where('display_name', 'like', "%{$search}%")
+                ->orWhere('raison_sociale', 'like', "%{$search}%")
+                ->orWhere('nif', 'like', "%{$search}%")
+                ->orWhere('rc', 'like', "%{$search}%")
+                ->orWhere('email', 'like', "%{$search}%")
+                ->orWhere('phone', 'like', "%{$search}%");
             });
         }
 
